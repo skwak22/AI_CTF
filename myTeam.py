@@ -24,7 +24,7 @@ from util import nearestPoint
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first='DefensiveReflexAgent', second='OffensiveReflexAgent'):
+               first='OffensiveReflexAgent', second='OffensiveReflexAgent'):
     """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -134,28 +134,96 @@ class OffensiveReflexAgent(DefaultAgent):
         features = util.Counter()
         successor = self.getSuccessor(gameState, action)
         foodList = self.getFood(successor).asList()
-        features['successorScore'] = -len(foodList)  # self.getScore(successor)
-
-        # Compute distance to the nearest food
+        # features['successorScore'] = -len(foodList)
+        features['successorScore'] = self.getScore(successor)
         myState = successor.getAgentState(self.index)
         myPos = myState.getPosition()
 
+        enemyPos1 = gameState.getAgentPosition(self.getOpponents(gameState)[0]) #TODO: make team-general
+        enemyPos2 = gameState.getAgentPosition(self.getOpponents(gameState)[1])
+
+        if enemyPos1 is not None:
+            enemydist1 = self.getMazeDistance(myPos, enemyPos1)
+            if enemydist1 < 3:
+                features['terror'] += 2 - enemydist1
+                features['distanceFromEnemy1'] = enemydist1
+
+        if enemyPos2 is not None:
+            enemydist2 = self.getMazeDistance(myPos, enemyPos2)
+            if enemyPos2 is not None and enemydist2 < 3:
+                features['terror'] += 2-enemydist2
+                features['distanceFromEnemy2'] = enemydist2
+
+
+
+        # beliefDistribution1 = util.Counter()
+        # beliefDistribution2 = util.Counter()
+
+        # features['terror'] = 0
+        # for possiblePos in beliefDistribution1:
+        #     features['distanceFromEnemy1'] += self.getMazeDistance(myPos, possiblePos) * beliefDistribution1[possiblePos]
+        #     if self.getMazeDistance(myPos, possiblePos) < 2:
+        #         features['terror'] +=beliefDistribution1[possiblePos]
+        # for possiblePos in beliefDistribution2:
+        #     features['distanceFromEnemy2'] += self.getMazeDistance(myPos, possiblePos) * beliefDistribution2[
+        #         possiblePos]
+        #     if self.getMazeDistance(myPos, possiblePos) < 2:
+        #         features['terror'] += beliefDistribution2[possiblePos]
+
+
+
+
+        # Compute distance to the nearest food
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-            features['distanceToFood'] = minDistance
-        if gameState.isOnRedTeam:
-            friendlyIndices = gameState.getRedTeamIndices()
-        if(myState.isPacman):
-            enemy_positions = gameState.getAgentDistances()
-            print(enemy_positions)
-            pass
+            features['distanceToFood'] = 1/float(minDistance)
+        if myState.isPacman:
+            if gameState.isOnRedTeam:
+                friendlyBorder = gameState.data.layout.width/2 - 1 #TODO: ASSUMES RED IS ON LEFT
+                minDistToHome = 99999999999
+                for i in range(gameState.data.layout.height):
+                    location =  (friendlyBorder,i)
+                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(myPos, location) < minDistToHome:
+                        minDistToHome = self.getMazeDistance(myPos, (friendlyBorder,i))
+                features['distanceToHome'] = minDistToHome
+            else:
+                friendlyBorder = gameState.data.layout.width / 2
+                for i in range(gameState.data.layout.height):
+                    location = (friendlyBorder,i)
+                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(myPos, location) < minDistToHome:
+                        minDistToHome = self.getMazeDistance(myPos, (friendlyBorder,i))
+                features['distanceToHome'] = minDistToHome
+
+            features['foodCarried'] = myState.numCarrying
+
+            features['BringingHomeBacon'] = features['foodCarried'] / (features['distanceToHome']+1)
+        print(features)
+
+
+
+        # if(myState.isPacman):
+        #     enemy_positions = gameState.getAgentDistances()
+        #     if self.index is 2:
+        #         features['distanceFromEnemy1'] = enemy_positions[2]
+        #         features['distanceFromEnemy2'] = enemy_positions[3]
+        #         if enemy_positions[2] < 3 or enemy_positions[3] < 3:
+        #             features['terror'] = 1
+        #     if self.index is 0:
+        #         features['distanceFromEnemy1'] = enemy_positions[0]
+        #         features['distanceFromEnemy2'] = enemy_positions[1]
+        #         if enemy_positions[0] < 3 or enemy_positions[1] < 3:
+        #             features['terror'] = 1
+
+            # print(enemy_positions)
+            #
+            # pass
 
 
         return features
 
     def getWeights(self, gameState, action):
-        return {'successorScore': 100, 'distanceToFood': -1, 'distanceToHome': -1, 'foodCarried': 2,
-                'distanceFromEnemy': 1, 'enemyCutOff': -10, 'terror': -1000}
+        return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 7, 'foodCarried': 10,
+                'distanceFromEnemy1': 1,'distanceFromEnemy2': 1, 'enemyCutOff': -10, 'terror': -100000000}
 
 
 class DefensiveReflexAgent(DefaultAgent):
