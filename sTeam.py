@@ -18,6 +18,7 @@ from game import Directions
 import game
 from util import nearestPoint
 import itertools
+import initializationfunctions
 
 ###########
 # GLOBALS #
@@ -25,6 +26,8 @@ import itertools
 
 myTeamAgents = (1, 3)
 opponentTeamAgents = (0, 2)
+
+#on initialization - mark dead end spots, mark the way towards the exit at them
 
 #################
 # Team creation #
@@ -67,6 +70,7 @@ class DefaultAgent(CaptureAgent):
         opponentTeamAgents = tuple(self.getOpponents(gameState))
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
+        self.deadEnds = initializationfunctions.findDeadEnds(gameState)
 
     def chooseAction(self, gameState):
         """
@@ -147,23 +151,33 @@ class OffensiveReflexAgent(DefaultAgent):
         foodList = self.getFood(successor).asList()
         # features['successorScore'] = -len(foodList)
         features['successorScore'] = self.getScore(successor)
-        myState = successor.getAgentState(self.index)
-        myPos = myState.getPosition()
+        successorState = successor.getAgentState(self.index)
+        successorPos = successorState.getPosition()
+
 
         enemyPos1 = gameState.getAgentPosition(self.getOpponents(gameState)[0]) #TODO: make team-general
         enemyPos2 = gameState.getAgentPosition(self.getOpponents(gameState)[1])
 
         if enemyPos1 is not None:
-            enemydist1 = self.getMazeDistance(myPos, enemyPos1)
+            enemydist1 = self.getMazeDistance(successorPos, enemyPos1)
             if enemydist1 < 3:
                 features['terror'] += 2 - enemydist1
-                features['distanceFromEnemy1'] = enemydist1
-
+                if enemydist1 is 0:
+                    features['distanceFromEnemy1'] = 1000
+                else:
+                    features['distanceFromEnemy1'] = 1/enemydist1
+                if successorPos in self.deadEnds:
+                    enemydist1 *= 5
         if enemyPos2 is not None:
-            enemydist2 = self.getMazeDistance(myPos, enemyPos2)
+            enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
             if enemyPos2 is not None and enemydist2 < 3:
                 features['terror'] += 2-enemydist2
-                features['distanceFromEnemy2'] = enemydist2
+                if enemydist2 is 0:
+                    features['distanceFromEnemy2'] = 1000
+                else:
+                    features['distanceFromEnemy2'] = 1/enemydist2
+                if successorPos in self.deadEnds:
+                    enemydist2 *= 5
 
 
 
@@ -186,28 +200,29 @@ class OffensiveReflexAgent(DefaultAgent):
 
         # Compute distance to the nearest food
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
-            minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+            minDistance = min([self.getMazeDistance(successorPos, food) for food in foodList])
             features['distanceToFood'] = 1/float(minDistance)
-        if myState.isPacman:
+        if successorState.isPacman:
             if gameState.isOnRedTeam:
                 friendlyBorder = gameState.data.layout.width/2 - 1 #TODO: ASSUMES RED IS ON LEFT
                 minDistToHome = 99999999999
                 for i in range(gameState.data.layout.height):
                     location =  (friendlyBorder,i)
-                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(myPos, location) < minDistToHome:
-                        minDistToHome = self.getMazeDistance(myPos, (friendlyBorder,i))
+                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos, location) < minDistToHome:
+                        minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder,i))
                 features['distanceToHome'] = minDistToHome
             else:
                 friendlyBorder = gameState.data.layout.width / 2
                 for i in range(gameState.data.layout.height):
                     location = (friendlyBorder,i)
-                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(myPos, location) < minDistToHome:
-                        minDistToHome = self.getMazeDistance(myPos, (friendlyBorder,i))
+                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos, location) < minDistToHome:
+                        minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder,i))
                 features['distanceToHome'] = minDistToHome
 
-            features['foodCarried'] = myState.numCarrying
+            features['foodCarried'] = successorState.numCarrying
 
-            features['BringingHomeBacon'] = features['foodCarried'] / (features['distanceToHome']+1)
+            features['BringingHomeBacon'] = (features['foodCarried']**2) / (features['distanceToHome']+1)
+
         print(features)
 
 
@@ -233,8 +248,8 @@ class OffensiveReflexAgent(DefaultAgent):
         return features
 
     def getWeights(self, gameState, action):
-        return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 7, 'foodCarried': 10,
-                'distanceFromEnemy1': 1,'distanceFromEnemy2': 1, 'enemyCutOff': -10, 'terror': -100000000}
+        return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 5, 'foodCarried': 5,
+                'distanceFromEnemy1': -10,'distanceFromEnemy2': -10, 'enemyCutOff': -10, 'terror': -100000000}
 
 
 class DefensiveReflexAgent(DefaultAgent):
