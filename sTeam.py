@@ -1,4 +1,4 @@
-# myTeam.py
+# sTeam.py
 # ---------
 # Licensing Information:  You are free to use or extend these projects for
 # educational purposes provided that (1) you do not distribute or publish
@@ -17,7 +17,14 @@ import random, time, util
 from game import Directions
 import game
 from util import nearestPoint
+import itertools
 
+###########
+# GLOBALS #
+###########
+
+myTeamAgents = (1, 3)
+opponentTeamAgents = (0, 2)
 
 #################
 # Team creation #
@@ -54,6 +61,10 @@ class DefaultAgent(CaptureAgent):
     """
 
     def registerInitialState(self, gameState):
+        global myTeamAgents
+        global opponentTeamAgents
+        myTeamAgents = tuple(self.getTeam(gameState))
+        opponentTeamAgents = tuple(self.getOpponents(gameState))
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
 
@@ -147,8 +158,9 @@ class OffensiveReflexAgent(DefaultAgent):
             friendlyIndices = gameState.getRedTeamIndices()
         if(myState.isPacman):
             enemy_positions = gameState.getAgentDistances()
-            print(enemy_positions)
             pass
+
+        # print(self.getCurrentObservation().getAgentPosition(1))
 
 
         return features
@@ -240,3 +252,152 @@ class DummyAgent(CaptureAgent):
         return random.choice(actions)
 
 # Features to consider - food, distance to food, distance to our own side, distance to enemies with consideration to whether they're between us and our side
+
+
+class JointParticleFilter:
+    """
+    JointParticleFilter tracks a joint distribution over tuples of all ghost
+    positions.
+    """
+
+    def __init__(self, numParticles=600):
+        self.setNumParticles(numParticles)
+
+    def setNumParticles(self, numParticles):
+        self.numParticles = numParticles
+
+    def initialize(self, gameState, legalPositions, opponents=None):
+        "Stores information about the game, then initializes particles."
+        if opponents is None:
+            opponents = [1, 3]
+        self.numGhosts = 2
+        self.ghostAgents = []
+        self.legalPositions = legalPositions
+        self.initializeParticles()
+        self.opponents = opponents
+
+
+    def initializeParticles(self):
+        """
+        Initialize particles to be consistent with a uniform prior.
+        Each particle is a tuple of ghost positions. Use self.numParticles for
+        the number of particles. You may find the `itertools` package helpful.
+        Specifically, you will need to think about permutations of legal ghost
+        positions, with the additional understanding that ghosts may occupy the
+        same space. Look at the `itertools.product` function to get an
+        implementation of the Cartesian product.
+        Note: If you use itertools, keep in mind that permutations are not
+        returned in a random order; you must shuffle the list of permutations in
+        order to ensure even placement of particles across the board. Use
+        self.legalPositions to obtain a list of positions a ghost may occupy.
+        Note: the variable you store your particles in must be a list; a list is
+        simply a collection of unweighted variables (positions in this case).
+        Storing your particles as a Counter (where there could be an associated
+        weight with each position) is incorrect and may produce errors.
+        """
+
+        self.particles = []
+
+        cartProduct = list(itertools.product(self.legalPositions, repeat=self.numGhosts))
+        random.shuffle(cartProduct)
+
+        positionsLength = self.numParticles
+        whole = positionsLength // len(cartProduct)
+        remain = positionsLength % len(cartProduct)
+        for i in range(whole):
+            for c in cartProduct:
+                self.particles.append(c)
+        index = 0
+        for i in range(remain):
+            self.particles.append(cartProduct[index])
+            index += 1
+
+    def addGhostAgent(self, agent):
+        """
+        Each ghost agent is registered separately and stored (in case they are
+        different).
+        """
+        self.ghostAgents.append(agent)
+
+    def getJailPosition(self, i):
+        return (2 * i + 1, 1)
+
+
+
+    def observeState(self, gameState):
+
+        currentObservation = gameState.getCurrentObservation()
+        pacmanPosition = gameState.getPacmanPosition()
+        noisyDistances = gameState.getAgentDistances()
+        if len(noisyDistances) < self.numGhosts:
+            return
+
+        # use getDistanceProb() instead of emissionModel
+
+
+        beliefDist = self.getBeliefDistribution()
+        for p in beliefDist:
+            trueD = 1
+            for i in range(self.numGhosts):
+                if noisyDistances[i] is not None:
+                    trueDistance = util.manhattanDistance(p[i], pacmanPosition)
+                    trueD *= gameState.getDistanceProb(trueDistance, noisyDistances[i])
+            beliefDist[p] = trueD * beliefDist[p]
+
+        for ghostIndex, opponent in enumerate(self.opponents):
+            if currentObservation.getAgentPosition(opponent) is not None:
+                for i in range(len(self.particles)):
+                    self.particles[i] = self.getParticleWithGhostAtTrueLocation(
+                        currentObservation.getAgentPosition(opponent), ghostIndex)
+
+        if beliefDist.totalCount() == 0:
+            self.initializeParticles()
+            for i in range(self.numGhosts):
+                if noisyDistances[i] is None:
+                    for j in range(len(self.particles)):
+                        self.particles[j] = self.getParticleWithGhostInJail(self.particles[j], i)
+        else:
+            for i in range(len(self.particles)):
+                self.particles[i] = util.sample(beliefDist)
+
+
+
+
+    def getParticleWithGhostInJail(self, particle, ghostIndex):
+        """
+        Takes a particle (as a tuple of ghost positions) and returns a particle
+        with the ghostIndex'th ghost in jail.
+        """
+        particle = list(particle)
+        particle[ghostIndex] = self.getJailPosition(ghostIndex)
+        return tuple(particle)
+
+    def elapseTime(self, gameState):
+
+        newParticles = []
+        for oldParticle in self.particles:
+            newParticle = list(oldParticle) # A list of ghost positions
+            # now loop through and update each entry in newParticle...
+
+            "*** YOUR CODE HERE ***"
+
+            "*** END YOUR CODE HERE ***"
+            newParticles.append(tuple(newParticle))
+        self.particles = newParticles
+
+    def getBeliefDistribution(self):
+        "*** YOUR CODE HERE ***"
+
+        beliefDist = util.Counter()
+        for particle in self.particles:
+            beliefDist[particle] += 1
+        beliefDist.normalize()
+        return beliefDist
+
+    def getParticleWithGhostAtTrueLocation(self, particle, ghostIndex):
+        particle = list(particle)
+
+        # finish
+
+        return tuple(particle)
+
