@@ -27,7 +27,7 @@ class JointParticleFilter:
         self.height = gameState.getWalls().height
         self.width = gameState.getWalls().width
         self.startingPos = gameState.getAgentPosition(self.team[0])
-        self.opponentStartingPos = self.getOpponentStartingPosition()  # TODO: Build out this function
+        self.opponentStartingPos = self.getOpponentStartingPosition(gameState, self.opponents[0])  # TODO: Build out this function
         self.particles = []
 
         # self.setBothToStart()
@@ -57,9 +57,6 @@ class JointParticleFilter:
         for i in range(remain):
             self.particles.append(cartProduct[index])
             index += 1
-
-    def getOpponentStartingPosition(self):
-        pass
 
 
 
@@ -91,8 +88,8 @@ class JointParticleFilter:
             trueD = 1
             for i in range(self.numGhosts):
                 if noisyDistances[i] is not None:
-                    trueDistances = [util.manhattanDistance(p[i], self.team[0]),
-                                     util.manhattanDistance(p[i], self.team[1])]
+                    trueDistances = [util.manhattanDistance(p[i], currentObservation.getAgentPosition(self.team[0])),
+                                     util.manhattanDistance(p[i], currentObservation.getAgentPosition(self.team[1]))]
                     trueD *= gameState.getDistanceProb(min(trueDistances), noisyDistances[self.opponents[i]])
             beliefDist[p] = trueD * beliefDist[p]
 
@@ -145,9 +142,8 @@ class JointParticleFilter:
         # TODO: fill out
         return False
 
-    def getOpponentStartingPosition(self):
-        # TODO: finish this
-        return (1,2)
+    def getOpponentStartingPosition(self, gameState, opponentIndex):
+        return gameState.getInitialAgentPosition(opponentIndex)
 
     def getPositionDistributionForGhost(self, gameState, ghostIndex, agent):
         ghostPosition = gameState.getGhostPosition(ghostIndex + 1)
