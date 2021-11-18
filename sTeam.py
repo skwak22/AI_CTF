@@ -34,7 +34,7 @@ opponentTeamAgents = (0, 2)
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first='OffensiveReflexAgent', second='OffensiveReflexAgent'):
+               first='DefensiveReflexAgent', second='OffensiveReflexAgent'):
     """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -82,7 +82,10 @@ class DefaultAgent(CaptureAgent):
         # start = time.time()
         values = [self.evaluate(gameState, a) for a in actions]
         # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
-
+        # for i in range(len(actions)):
+        #     print(actions[i])
+        #     print(self.getFeatures( gameState, actions[i]))
+        #     print(values[i])
         maxValue = max(values)
         bestActions = [a for a, v in zip(actions, values) if v == maxValue]
 
@@ -162,22 +165,23 @@ class OffensiveReflexAgent(DefaultAgent):
             enemydist1 = self.getMazeDistance(successorPos, enemyPos1)
             if enemydist1 < 3:
                 features['terror'] += 2 - enemydist1
-                if enemydist1 is 0:
-                    features['distanceFromEnemy1'] = 1000
-                else:
-                    features['distanceFromEnemy1'] = 1/enemydist1
-                if successorPos in self.deadEnds:
-                    enemydist1 *= 5
+            if enemydist1 is 0:
+                features['distanceFromEnemy1'] = 1000.0
+            else:
+                features['distanceFromEnemy1'] = 1.0/float(enemydist1)
+            print(features['distanceFromEnemy1'])
+            if successorPos in self.deadEnds:
+                features['distanceFromEnemy1'] *= 50
         if enemyPos2 is not None:
             enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
             if enemyPos2 is not None and enemydist2 < 3:
                 features['terror'] += 2-enemydist2
-                if enemydist2 is 0:
-                    features['distanceFromEnemy2'] = 1000
-                else:
-                    features['distanceFromEnemy2'] = 1/enemydist2
-                if successorPos in self.deadEnds:
-                    enemydist2 *= 5
+            if enemydist2 is 0:
+                features['distanceFromEnemy2'] = 1000.0
+            else:
+                features['distanceFromEnemy2'] = 1.0/float(enemydist2)
+            if successorPos in self.deadEnds:
+                features['distanceFromEnemy2'] *= 50
 
 
 
@@ -204,16 +208,16 @@ class OffensiveReflexAgent(DefaultAgent):
             features['distanceToFood'] = 1/float(minDistance)
         if successorState.isPacman:
             if gameState.isOnRedTeam:
-                friendlyBorder = gameState.data.layout.width/2 - 1 #TODO: ASSUMES RED IS ON LEFT
+                friendlyBorder = gameState.getWalls().width/2 - 1 #TODO: ASSUMES RED IS ON LEFT
                 minDistToHome = 99999999999
-                for i in range(gameState.data.layout.height):
+                for i in range(gameState.getWalls().height):
                     location =  (friendlyBorder,i)
                     if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos, location) < minDistToHome:
                         minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder,i))
                 features['distanceToHome'] = minDistToHome
             else:
-                friendlyBorder = gameState.data.layout.width / 2
-                for i in range(gameState.data.layout.height):
+                friendlyBorder = gameState.getWalls().width / 2
+                for i in range(gameState.getWalls().height):
                     location = (friendlyBorder,i)
                     if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos, location) < minDistToHome:
                         minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder,i))
@@ -221,9 +225,9 @@ class OffensiveReflexAgent(DefaultAgent):
 
             features['foodCarried'] = successorState.numCarrying
 
-            features['BringingHomeBacon'] = (features['foodCarried']**2) / (features['distanceToHome']+1)
+            features['BringingHomeBacon'] = float(features['foodCarried']**2.0) / float(features['distanceToHome']+1)
 
-        print(features)
+        # print(features)
 
 
 
@@ -249,7 +253,7 @@ class OffensiveReflexAgent(DefaultAgent):
 
     def getWeights(self, gameState, action):
         return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 5, 'foodCarried': 5,
-                'distanceFromEnemy1': -10,'distanceFromEnemy2': -10, 'enemyCutOff': -10, 'terror': -100000000}
+                'distanceFromEnemy1': -3,'distanceFromEnemy2': -3, 'enemyCutOff': -10, 'terror': -100000000}
 
 
 class DefensiveReflexAgent(DefaultAgent):
