@@ -24,9 +24,6 @@ import initializationfunctions
 # GLOBALS #
 ###########
 
-myTeamAgents = (1, 3)
-opponentTeamAgents = (0, 2)
-
 #on initialization - mark dead end spots, mark the way towards the exit at them
 
 #################
@@ -64,8 +61,8 @@ class DefaultAgent(CaptureAgent):
     """
 
     def registerInitialState(self, gameState):
-        self.myTeamAgents = tuple(self.getTeam(gameState))
-        self.opponentTeamAgents = tuple(self.getOpponents(gameState))
+        # self.myTeamAgents = tuple(self.getTeam(gameState))
+        # self.opponentTeamAgents = tuple(self.getOpponents(gameState))
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
         self.deadEnds = initializationfunctions.findDeadEnds(gameState)
@@ -77,37 +74,95 @@ class DefaultAgent(CaptureAgent):
 
         # trying expectimax
 
-        def expectimax(gameState, player, depth, action):
+        # find the known positions of all agents
+        knownPositions = []
+        enemiesSeen = []
+        for i in range(4):
+            position = gameState.getAgentPosition(i)
+            knownPositions.append(position)
+            if gameState.getAgentPosition(i) is not None and i in self.getOpponents(gameState):
+                enemiesSeen.append(i)
+        if len(enemiesSeen) > 0:
+            enemyState = gameState.generateSuccessor(enemiesSeen[0], "Stop")
+            self.evaluate(enemyState)
+        # If we can't see any enemies, just return the best action
+
+        if len(enemiesSeen) == 0:
+            actions = gameState.getLegalActions(self.index)
+
+            # You can profile your evaluation time by uncommenting these lines
+            # s
+            # tart = time.time()
+            successorStates = [gameState.generateSuccessor(self.index, action) for action in actions]
+            values = [self.evaluate(successorState) for successorState in successorStates]
+            # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
+
+            maxValue = max(values)
+            bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+
+            foodLeft = len(self.getFood(gameState).asList())
+
+            if foodLeft <= 2:
+                bestDist = 9999
+                for action in actions:
+                    successor = self.getSuccessor(gameState, action)
+                    pos2 = successor.getAgentPosition(self.index)
+                    dist = self.getMazeDistance(self.start, pos2)
+                    if dist < bestDist:
+                        bestAction = action
+                        bestDist = dist
+                return bestAction
+
+            return random.choice(bestActions)
+
+        def alpha_beta_search(gameState):
+            res_score = -10000
+            res_action = None
+            init_beta = 10000
+            init_alpha = -10000
+            for action in gameState.getLegalActions(self.index):
+                successorState = gameState.generateSuccessor(self.index, action)
+                score = min_value(successorState, enemiesSeen[0], 0, init_alpha, init_beta, action)
+                if score > res_score:
+                    res_score = score
+                    res_action = action
+                init_alpha = max(init_alpha, score)
+            return res_action
+
+        def max_value(gameState, player, depth, alpha, beta, top_action):
             if depth == 3 or len(gameState.getLegalActions(player)) == 0:
-                return self.evaluate(gameState, action)
-            if player == self.index:
-                v = -10000
-                for action in gameState.getLegalActions(player):
-                    successorState = gameState.generateSuccessor(player, action)
-                    v = max(v, expectimax(successorState, self.opponentTeamAgents[0], depth, action))
-                return v
-                # pacman operation --> ghost operation
-            elif player != self.index:
-                v = []
-                for action in gameState.getLegalActions(player):
-                    successorState = gameState.generateSuccessor(player, action)
-                    if player == self.opponentTeamAgents[1]:
-                        v.append(min(v, expectimax(successorState, self.index, depth + 1, action)))
-                    else:
-                        v.append(expectimax(successorState, self.opponentTeamAgents[1], depth, action))
-                return sum(v) / len(v)
+                return self.evaluate(gameState)
+            v = -10000
+            for action in gameState.getLegalActions(player):
+                successorState = gameState.generateSuccessor(player, action)
+                v = max(v, min_value(successorState,
+                                     enemiesSeen[0], depth, alpha, beta, top_action))
+                if v > beta:
+                    return v
+                alpha = max(alpha, v)
+            return v
 
-        res_score = -10000
-        defaultAction = gameState.getLegalActions(self.index)[0]
-        for action in gameState.getLegalActions(self.index):
-            successorState = gameState.generateSuccessor(self.index, action)
-            score = expectimax(successorState, self.opponentTeamAgents[0], 0, action)
-            print score
-            print successorState
+        def min_value(gameState, player, depth, alpha, beta, top_action):
+            if depth == 3 or len(gameState.getLegalActions(player)) == 0:
+                return self.evaluate(gameState)
+            v = 10000
+            for action in gameState.getLegalActions(player):
+                successorState = gameState.generateSuccessor(player, action)
+                if player == enemiesSeen[0]:
+                    v = min(v, max_value(successorState,
+                                         self.index, depth + 1, alpha, beta, top_action))
+                else:
+                    v = min(v, min_value(successorState,
+                                         enemiesSeen[1], depth, alpha, beta, top_action))
+                if v < alpha:
+                    return v
+                beta = min(beta, v)
+            return v
 
-        print defaultAction
-        return defaultAction
 
+        # temp = alpha_beta_search(gameState)
+
+        return alpha_beta_search(gameState)
 
 
     def getSuccessor(self, gameState, action):
@@ -122,24 +177,24 @@ class DefaultAgent(CaptureAgent):
         else:
             return successor
 
-    def evaluate(self, gameState, action):
+    def evaluate(self, gameState):
         """
         Computes a linear combination of features and feature weights
         """
-        features = self.getFeatures(gameState, action)
-        weights = self.getWeights(gameState, action)
+        features = self.getFeatures(gameState)
+        weights = self.getWeights(gameState)
         return features * weights
 
-    def getFeatures(self, gameState, action):
+    def getFeatures(self, gameState):
         """
         Returns a counter of features for the state
         """
         features = util.Counter()
-        successor = self.getSuccessor(gameState, action)
+        successor = gameState
         features['successorScore'] = self.getScore(successor)
         return features
 
-    def getWeights(self, gameState, action):
+    def getWeights(self, gameState):
         """
         Normally, weights do not depend on the gamestate.  They can be either
         a counter or a dictionary.
@@ -154,9 +209,9 @@ class OffensiveReflexAgent(DefaultAgent):
     but it is by no means the best or only way to build an offensive agent.
     """
 
-    def getFeatures(self, gameState, action):
+    def getFeatures(self, gameState):
         features = util.Counter()
-        successor = self.getSuccessor(gameState, action)
+        successor = gameState
         foodList = self.getFood(successor).asList()
         # features['successorScore'] = -len(foodList)
         features['successorScore'] = self.getScore(successor)
@@ -175,7 +230,7 @@ class OffensiveReflexAgent(DefaultAgent):
                 features['distanceFromEnemy1'] = 1000.0
             else:
                 features['distanceFromEnemy1'] = 1.0/float(enemydist1)
-            print(features['distanceFromEnemy1'])
+            # print(features['distanceFromEnemy1'])
             if successorPos in self.deadEnds:
                 features['distanceFromEnemy1'] *= 50
         if enemyPos2 is not None:
@@ -257,7 +312,7 @@ class OffensiveReflexAgent(DefaultAgent):
 
         return features
 
-    def getWeights(self, gameState, action):
+    def getWeights(self, gameState):
         return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 5, 'foodCarried': 5,
                 'distanceFromEnemy1': -3,'distanceFromEnemy2': -3, 'enemyCutOff': -10, 'terror': -100000000}
 
@@ -270,9 +325,9 @@ class DefensiveReflexAgent(DefaultAgent):
     such an agent.
     """
 
-    def getFeatures(self, gameState, action):
+    def getFeatures(self, gameState):
         features = util.Counter()
-        successor = self.getSuccessor(gameState, action)
+        successor = gameState
 
         myState = successor.getAgentState(self.index)
         myPos = myState.getPosition()
@@ -290,9 +345,9 @@ class DefensiveReflexAgent(DefaultAgent):
             dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
             features['invaderDistance'] = min(dists)
 
-        if action == Directions.STOP: features['stop'] = 1
-        rev = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1
+        # if action == Directions.STOP: features['stop'] = 1
+        # rev = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
+        # if action == rev: features['reverse'] = 1
 
         # Amount of food left
 
@@ -319,15 +374,16 @@ class DefensiveReflexAgent(DefaultAgent):
         scaredTimer = myState.scaredTimer
         if scaredTimer > 0:
             if dists is not None:
-                if min(dists) < 2:
+                if min(dists) < 1:
                     features['avoidWhenScared'] = 1
+
 
 
 
         return features
 
-    def getWeights(self, gameState, action):
-        return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
+    def getWeights(self, gameState):
+        return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -50, 'stop': -100, 'reverse': -2,
                 'numFood': 5, 'capsuleProximity': 30, 'avoidWhenScared': -10000, 'capsuleInPlay': 10}
 
 
