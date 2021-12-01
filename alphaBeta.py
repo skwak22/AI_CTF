@@ -20,11 +20,12 @@ from util import nearestPoint
 import itertools
 import initializationfunctions
 
+
 ###########
 # GLOBALS #
 ###########
 
-#on initialization - mark dead end spots, mark the way towards the exit at them
+# on initialization - mark dead end spots, mark the way towards the exit at them
 
 #################
 # Team creation #
@@ -71,6 +72,7 @@ class DefaultAgent(CaptureAgent):
         """
         Picks among the actions with the highest Q(s,a).
         """
+        DEPTH = 3
 
         # trying expectimax
 
@@ -82,19 +84,28 @@ class DefaultAgent(CaptureAgent):
             knownPositions.append(position)
             if gameState.getAgentPosition(i) is not None and i in self.getOpponents(gameState):
                 enemiesSeen.append(i)
-        if len(enemiesSeen) > 0:
-            enemyState = gameState.generateSuccessor(enemiesSeen[0], "Stop")
-            self.evaluate(enemyState)
+
+
         # If we can't see any enemies, just return the best action
 
         if len(enemiesSeen) == 0:
             actions = gameState.getLegalActions(self.index)
 
+            reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
+
             # You can profile your evaluation time by uncommenting these lines
-            # s
-            # tart = time.time()
+            # start = time.time()
             successorStates = [gameState.generateSuccessor(self.index, action) for action in actions]
-            values = [self.evaluate(successorState) for successorState in successorStates]
+            values = []
+            for i, successorState in enumerate(successorStates):
+                isStop = False
+                isReverse = False
+                if actions[i] == "Stop":
+                    isStop = True
+                if actions[i] == "Reverse":
+                    isReverse = True
+                evalValue = self.evaluate(successorState, isReverse, isStop)
+                values.append(evalValue)
             # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
 
             maxValue = max(values)
@@ -115,55 +126,75 @@ class DefaultAgent(CaptureAgent):
 
             return random.choice(bestActions)
 
+        # if more than one enemy is seen, only run minimax on the one closest to our current agent
+
+        if len(enemiesSeen) > 1:
+            closest = 10000
+            for enemy in enemiesSeen:
+                mazeDist = self.getMazeDistance(gameState.getAgentPosition(self.index), gameState.getAgentPosition(enemy))
+                if mazeDist < closest:
+                    closest = mazeDist
+                    enemiesSeen = [enemy]
+
         def alpha_beta_search(gameState):
+
+            # implement forward pruning, where we sort available actions and only consider the top n actions
+
             res_score = -10000
             res_action = None
             init_beta = 10000
             init_alpha = -10000
-            for action in gameState.getLegalActions(self.index):
+            actions = gameState.getLegalActions(self.index)
+            reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
+            for action in actions:
+                if len(actions) > 1 and action == "Stop":
+                    continue
                 successorState = gameState.generateSuccessor(self.index, action)
-                score = min_value(successorState, enemiesSeen[0], 0, init_alpha, init_beta, action)
+
+                score = min_value(successorState, enemiesSeen[0], 0, init_alpha, init_beta)
                 if score > res_score:
                     res_score = score
                     res_action = action
                 init_alpha = max(init_alpha, score)
             return res_action
 
-        def max_value(gameState, player, depth, alpha, beta, top_action):
-            if depth == 3 or len(gameState.getLegalActions(player)) == 0:
-                return self.evaluate(gameState)
+        def max_value(gameState, player, depth, alpha, beta):
+            actions = gameState.getLegalActions(player)
+            if len(actions) == 0:
+                return 0
+            reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
+            if depth == DEPTH or len(actions) == 0:
+                return self.evaluate(gameState, False, False)
             v = -10000
-            for action in gameState.getLegalActions(player):
+            for action in actions:
+                if len(actions) > 1 and action == "Stop":
+                    continue 
                 successorState = gameState.generateSuccessor(player, action)
                 v = max(v, min_value(successorState,
-                                     enemiesSeen[0], depth, alpha, beta, top_action))
+                                     enemiesSeen[0], depth, alpha, beta))
                 if v > beta:
                     return v
                 alpha = max(alpha, v)
             return v
 
-        def min_value(gameState, player, depth, alpha, beta, top_action):
-            if depth == 3 or len(gameState.getLegalActions(player)) == 0:
-                return self.evaluate(gameState)
+        def min_value(gameState, player, depth, alpha, beta):
+            actions = gameState.getLegalActions(player)
+            if depth == DEPTH or actions == 0:
+                return self.evaluate(gameState, False, False)
             v = 10000
-            for action in gameState.getLegalActions(player):
+            for action in actions:
+                if len(actions) > 1 and action == "Stop":
+                    continue
                 successorState = gameState.generateSuccessor(player, action)
                 if player == enemiesSeen[0]:
                     v = min(v, max_value(successorState,
-                                         self.index, depth + 1, alpha, beta, top_action))
-                else:
-                    v = min(v, min_value(successorState,
-                                         enemiesSeen[1], depth, alpha, beta, top_action))
+                                         self.index, depth + 1, alpha, beta))
                 if v < alpha:
                     return v
                 beta = min(beta, v)
             return v
 
-
-        # temp = alpha_beta_search(gameState)
-
         return alpha_beta_search(gameState)
-
 
     def getSuccessor(self, gameState, action):
         """
@@ -177,15 +208,15 @@ class DefaultAgent(CaptureAgent):
         else:
             return successor
 
-    def evaluate(self, gameState):
+    def evaluate(self, gameState, isReverse, isStop):
         """
         Computes a linear combination of features and feature weights
         """
-        features = self.getFeatures(gameState)
+        features = self.getFeatures(gameState, isReverse, isStop)
         weights = self.getWeights(gameState)
         return features * weights
 
-    def getFeatures(self, gameState):
+    def getFeatures(self, gameState, isReverse, isStop):
         """
         Returns a counter of features for the state
         """
@@ -209,7 +240,7 @@ class OffensiveReflexAgent(DefaultAgent):
     but it is by no means the best or only way to build an offensive agent.
     """
 
-    def getFeatures(self, gameState):
+    def getFeatures(self, gameState, isReverse, isStop):
         features = util.Counter()
         successor = gameState
         foodList = self.getFood(successor).asList()
@@ -218,8 +249,7 @@ class OffensiveReflexAgent(DefaultAgent):
         successorState = successor.getAgentState(self.index)
         successorPos = successorState.getPosition()
 
-
-        enemyPos1 = gameState.getAgentPosition(self.getOpponents(gameState)[0]) #TODO: make team-general
+        enemyPos1 = gameState.getAgentPosition(self.getOpponents(gameState)[0])  # TODO: make team-general
         enemyPos2 = gameState.getAgentPosition(self.getOpponents(gameState)[1])
 
         if enemyPos1 is not None:
@@ -229,22 +259,20 @@ class OffensiveReflexAgent(DefaultAgent):
             if enemydist1 is 0:
                 features['distanceFromEnemy1'] = 1000.0
             else:
-                features['distanceFromEnemy1'] = 1.0/float(enemydist1)
+                features['distanceFromEnemy1'] = 1.0 / float(enemydist1)
             # print(features['distanceFromEnemy1'])
             if successorPos in self.deadEnds:
                 features['distanceFromEnemy1'] *= 50
         if enemyPos2 is not None:
             enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
             if enemyPos2 is not None and enemydist2 < 3:
-                features['terror'] += 2-enemydist2
+                features['terror'] += 2 - enemydist2
             if enemydist2 is 0:
                 features['distanceFromEnemy2'] = 1000.0
             else:
-                features['distanceFromEnemy2'] = 1.0/float(enemydist2)
+                features['distanceFromEnemy2'] = 1.0 / float(enemydist2)
             if successorPos in self.deadEnds:
                 features['distanceFromEnemy2'] *= 50
-
-
 
         # beliefDistribution1 = util.Counter()
         # beliefDistribution2 = util.Counter()
@@ -260,37 +288,35 @@ class OffensiveReflexAgent(DefaultAgent):
         #     if self.getMazeDistance(myPos, possiblePos) < 2:
         #         features['terror'] += beliefDistribution2[possiblePos]
 
-
-
-
         # Compute distance to the nearest food
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minDistance = min([self.getMazeDistance(successorPos, food) for food in foodList])
-            features['distanceToFood'] = 1/float(minDistance)
+            features['distanceToFood'] = 1 / float(minDistance)
         if successorState.isPacman:
             if gameState.isOnRedTeam:
-                friendlyBorder = gameState.getWalls().width/2 - 1 #TODO: ASSUMES RED IS ON LEFT
+                friendlyBorder = gameState.getWalls().width / 2 - 1  # TODO: ASSUMES RED IS ON LEFT
                 minDistToHome = 99999999999
                 for i in range(gameState.getWalls().height):
-                    location =  (friendlyBorder,i)
-                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos, location) < minDistToHome:
-                        minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder,i))
+                    location = (friendlyBorder, i)
+                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos,
+                                                                                                location) < minDistToHome:
+                        minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder, i))
                 features['distanceToHome'] = minDistToHome
             else:
                 friendlyBorder = gameState.getWalls().width / 2
                 for i in range(gameState.getWalls().height):
-                    location = (friendlyBorder,i)
-                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos, location) < minDistToHome:
-                        minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder,i))
+                    location = (friendlyBorder, i)
+                    if not gameState.hasWall(location[0], location[1]) and self.getMazeDistance(successorPos,
+                                                                                                location) < minDistToHome:
+                        minDistToHome = self.getMazeDistance(successorPos, (friendlyBorder, i))
                 features['distanceToHome'] = minDistToHome
 
             features['foodCarried'] = successorState.numCarrying
 
-            features['BringingHomeBacon'] = float(features['foodCarried']**2.0) / float(features['distanceToHome']+1)
+            features['BringingHomeBacon'] = float(features['foodCarried'] ** 2.0) / float(
+                features['distanceToHome'] + 1)
 
         # print(features)
-
-
 
         # if(myState.isPacman):
         #     enemy_positions = gameState.getAgentDistances()
@@ -305,16 +331,16 @@ class OffensiveReflexAgent(DefaultAgent):
         #         if enemy_positions[0] < 3 or enemy_positions[1] < 3:
         #             features['terror'] = 1
 
-            # print(enemy_positions)
-            #
-            # pass
-
+        # print(enemy_positions)
+        #
+        # pass
 
         return features
 
     def getWeights(self, gameState):
-        return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 5, 'foodCarried': 5,
-                'distanceFromEnemy1': -3,'distanceFromEnemy2': -3, 'enemyCutOff': -10, 'terror': -100000000}
+        return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 5,
+                'foodCarried': 5,
+                'distanceFromEnemy1': -3, 'distanceFromEnemy2': -3, 'enemyCutOff': -10, 'terror': -100000000}
 
 
 class DefensiveReflexAgent(DefaultAgent):
@@ -325,7 +351,7 @@ class DefensiveReflexAgent(DefaultAgent):
     such an agent.
     """
 
-    def getFeatures(self, gameState):
+    def getFeatures(self, gameState, isReverse, isStop):
         features = util.Counter()
         successor = gameState
 
@@ -345,9 +371,9 @@ class DefensiveReflexAgent(DefaultAgent):
             dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
             features['invaderDistance'] = min(dists)
 
-        # if action == Directions.STOP: features['stop'] = 1
-        # rev = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
-        # if action == rev: features['reverse'] = 1
+        if isStop: features['stop'] = 1
+
+        if isReverse: features['reverse'] = 1
 
         # Amount of food left
 
@@ -367,7 +393,7 @@ class DefensiveReflexAgent(DefaultAgent):
         if distanceToCapsule == 0:
             features['capsuleProximity'] = 0
         else:
-            features['capsuleProximity'] = 1/distanceToCapsule
+            features['capsuleProximity'] = 1 / distanceToCapsule
 
         # Scared tactics (run away reflexively when scared)
 
@@ -376,9 +402,6 @@ class DefensiveReflexAgent(DefaultAgent):
             if dists is not None:
                 if min(dists) < 1:
                     features['avoidWhenScared'] = 1
-
-
-
 
         return features
 
@@ -431,6 +454,7 @@ class DummyAgent(CaptureAgent):
 
         return random.choice(actions)
 
+
 # Features to consider - food, distance to food, distance to our own side, distance to enemies with consideration to whether they're between us and our side
 
 
@@ -455,7 +479,6 @@ class JointParticleFilter:
         self.legalPositions = legalPositions
         self.initializeParticles()
         self.opponents = opponents
-
 
     def initializeParticles(self):
         """
@@ -502,8 +525,6 @@ class JointParticleFilter:
     def getJailPosition(self, i):
         return (2 * i + 1, 1)
 
-
-
     def observeState(self, gameState):
 
         currentObservation = gameState.getCurrentObservation()
@@ -513,7 +534,6 @@ class JointParticleFilter:
             return
 
         # use getDistanceProb() instead of emissionModel
-
 
         beliefDist = self.getBeliefDistribution()
         for p in beliefDist:
@@ -540,9 +560,6 @@ class JointParticleFilter:
             for i in range(len(self.particles)):
                 self.particles[i] = util.sample(beliefDist)
 
-
-
-
     def getParticleWithGhostInJail(self, particle, ghostIndex):
         """
         Takes a particle (as a tuple of ghost positions) and returns a particle
@@ -556,7 +573,7 @@ class JointParticleFilter:
 
         newParticles = []
         for oldParticle in self.particles:
-            newParticle = list(oldParticle) # A list of ghost positions
+            newParticle = list(oldParticle)  # A list of ghost positions
             # now loop through and update each entry in newParticle...
 
             "*** YOUR CODE HERE ***"
@@ -580,4 +597,3 @@ class JointParticleFilter:
         # finish
 
         return tuple(particle)
-
