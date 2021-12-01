@@ -72,6 +72,8 @@ class DefaultAgent(CaptureAgent):
         """
         Picks among the actions with the highest Q(s,a).
         """
+
+        # determine minimax depth
         DEPTH = 3
 
         # trying expectimax
@@ -139,6 +141,8 @@ class DefaultAgent(CaptureAgent):
         def alpha_beta_search(gameState):
 
             # implement forward pruning, where we sort available actions and only consider the top n actions
+
+            # TODO: make a function that sorts actions and return top actions only
 
             res_score = -10000
             res_action = None
@@ -409,7 +413,7 @@ class DefensiveReflexAgent(DefaultAgent):
             enemyNoisyDistances = [noisyDistances[opps[0]], noisyDistances[opps[1]]]
             allys = self.getTeam(gameState)
             allyNoisyDistances = [noisyDistances[allys[0]], allys[1]]
-            print allyNoisyDistances
+            # print allyNoisyDistances
             features['noisyClosestEnemy'] = min(enemyNoisyDistances)
 
         return features
