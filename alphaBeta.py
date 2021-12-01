@@ -90,6 +90,7 @@ class DefaultAgent(CaptureAgent):
 
         # If we can't see any enemies, just return the best action
 
+
         if len(enemiesSeen) == 0:
             actions = gameState.getLegalActions(self.index)
 
@@ -142,12 +143,10 @@ class DefaultAgent(CaptureAgent):
 
             # implement forward pruning, where we sort available actions and only consider the top n actions
 
-            # TODO: make a function that sorts actions and return top actions only
-
-            res_score = -10000
-            res_action = None
-            init_beta = 10000
-            init_alpha = -10000
+            res_score = -10000000
+            res_action = "Stop"
+            init_beta = 10000000
+            init_alpha = -100000000
             actions = gameState.getLegalActions(self.index)
             reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
             actions = self.forwardPrune(gameState, actions, self.index, reverse, 2)
@@ -171,8 +170,6 @@ class DefaultAgent(CaptureAgent):
             v = -10000
             actions = self.forwardPrune(gameState, actions, self.index, reverse, 2)
             for action in actions:
-                if len(actions) > 1 and action == "Stop":
-                    continue
                 successorState = gameState.generateSuccessor(player, action)
                 v = max(v, min_value(successorState,
                                      enemiesSeen[0], depth, alpha, beta))
@@ -199,6 +196,7 @@ class DefaultAgent(CaptureAgent):
             return v
 
         return alpha_beta_search(gameState)
+
 
     def getSuccessor(self, gameState, action):
         """
@@ -239,18 +237,23 @@ class DefaultAgent(CaptureAgent):
     def forwardPrune(self, gameState, actions, player, reverse, num):
         #our team
         #sort actions and return the top n actions
-        score = []
-        for action in actions:
-            successor = gameState.generateSuccessor(player, action)
-            evaluation = self.evaluate(successor, action == reverse, action == "Stop")
-            score.append((evaluation, action))
+        try:
+            score = []
+            for action in actions:
+                successor = gameState.generateSuccessor(player, action)
+                evaluation = self.evaluate(successor, action == reverse, action == "Stop")
+                score.append((evaluation, action))
 
-        score.sort(reverse=True)
-        if len(score) >= 3:
-            toReturn = [i[1] for i in score[:num]]
-            return toReturn
-        else:
-            return [i[1] for i in score[:1]]
+            score.sort(reverse=True)
+            if len(score) >= 3:
+                toReturn = [i[1] for i in score[:num]]
+                return toReturn
+            else:
+                return [i[1] for i in score[:1]]
+        except Exception as e:
+            print "Forward Prune exception"
+            print e
+            return ["Stop"]
 
 class OffensiveReflexAgent(DefaultAgent):
     """
