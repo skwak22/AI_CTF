@@ -102,7 +102,7 @@ class DefaultAgent(CaptureAgent):
                 isReverse = False
                 if actions[i] == "Stop":
                     isStop = True
-                if actions[i] == "Reverse":
+                if actions[i] == reverse:
                     isReverse = True
                 evalValue = self.evaluate(successorState, isReverse, isStop)
                 values.append(evalValue)
@@ -168,7 +168,7 @@ class DefaultAgent(CaptureAgent):
             v = -10000
             for action in actions:
                 if len(actions) > 1 and action == "Stop":
-                    continue 
+                    continue
                 successorState = gameState.generateSuccessor(player, action)
                 v = max(v, min_value(successorState,
                                      enemiesSeen[0], depth, alpha, beta))
@@ -403,12 +403,20 @@ class DefensiveReflexAgent(DefaultAgent):
                 if min(dists) < 1:
                     features['avoidWhenScared'] = 1
 
+        if len(invaders) == 0:
+            noisyDistances = gameState.getAgentDistances()
+            opps = self.getOpponents(gameState)
+            enemyNoisyDistances = [noisyDistances[opps[0]], noisyDistances[opps[1]]]
+            allys = self.getTeam(gameState)
+            allyNoisyDistances = [noisyDistances[allys[0]], allys[1]]
+            print allyNoisyDistances
+            features['noisyClosestEnemy'] = min(enemyNoisyDistances)
+
         return features
-
     def getWeights(self, gameState):
-        return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -50, 'stop': -100, 'reverse': -2,
-                'numFood': 5, 'capsuleProximity': 30, 'avoidWhenScared': -10000, 'capsuleInPlay': 10}
-
+        return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
+                'numFood': 5, 'capsuleProximity': 10, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
+                'noisyClosestEnemy': -100}
 
 class DummyAgent(CaptureAgent):
     """
