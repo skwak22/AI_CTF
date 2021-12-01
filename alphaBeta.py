@@ -74,9 +74,9 @@ class DefaultAgent(CaptureAgent):
         """
 
         # determine minimax depth
-        DEPTH = 3
+        DEPTH = 4
 
-        # trying expectimax
+        # trying aB
 
         # find the known positions of all agents
         knownPositions = []
@@ -89,6 +89,18 @@ class DefaultAgent(CaptureAgent):
 
 
         # If we can't see any enemies, just return the best action
+
+        if len(enemiesSeen) > 1:
+            closest = 10000
+            for enemy in enemiesSeen:
+                mazeDist = self.getMazeDistance(gameState.getAgentPosition(self.index), gameState.getAgentPosition(enemy))
+                if mazeDist < closest:
+                    closest = mazeDist
+                    enemiesSeen = [enemy]
+
+            # discard enemy if irrelevant (more than 8 distance away from agent)
+            if self.getMazeDistance(gameState.getAgentPosition(enemiesSeen[0]), gameState.getAgentPosition(self.index)) > 8:
+                enemiesSeen = []
 
 
         if len(enemiesSeen) == 0:
@@ -131,17 +143,11 @@ class DefaultAgent(CaptureAgent):
 
         # if more than one enemy is seen, only run minimax on the one closest to our current agent
 
-        if len(enemiesSeen) > 1:
-            closest = 10000
-            for enemy in enemiesSeen:
-                mazeDist = self.getMazeDistance(gameState.getAgentPosition(self.index), gameState.getAgentPosition(enemy))
-                if mazeDist < closest:
-                    closest = mazeDist
-                    enemiesSeen = [enemy]
 
         def alpha_beta_search(gameState):
 
             # implement forward pruning, where we sort available actions and only consider the top n actions
+
             actions = gameState.getLegalActions(self.index)
 
             res_score = -10000000
@@ -149,7 +155,7 @@ class DefaultAgent(CaptureAgent):
             init_beta = 10000000
             init_alpha = -100000000
             reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
-            actions = self.forwardPrune(gameState, actions, self.index, reverse, 2)
+            actions = self.forwardPrune(gameState, actions, self.index, reverse, 3)
             for action in actions:
                 if len(actions) > 1 and action == "Stop":
                     continue
@@ -257,8 +263,8 @@ class DefaultAgent(CaptureAgent):
             return [i[1] for i in score[:1]]
 
     def forwardPruneTheEnemy(self, gameState, actions, player, num):
-        #our team
-        #sort actions and return the top n actions
+        #enemy team
+        #sort actions and return the bottom n actions
         score = []
         for action in actions:
             successor = gameState.generateSuccessor(player, action)
