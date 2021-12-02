@@ -64,6 +64,7 @@ class DefaultAgent(CaptureAgent):
         self.deadEnds = findDeadEnds(gameState)
         self.enemySide = getOpposideSidePositions(gameState, self.index)
         self.ourSide = getOurSidePositions(gameState, self.index)
+        self.enemySideAsASet = set(self.enemySide)
 
         self.ourBorder = getOurBorder(gameState, self.index)
 
@@ -72,6 +73,8 @@ class DefaultAgent(CaptureAgent):
 
         # find optimal defense tile by calculating the maze distances to every single tile on our side
         self.optimalDefenseTile = findOptimalDefenseTile(self.ourSide, self)
+
+        self.lastEatenFood = self.optimalDefenseTile
 
         # self.debugDraw(self.optimalDefenseTile, [0, 0, 1])
 
@@ -305,9 +308,13 @@ class OffensiveReflexAgent(DefaultAgent):
         enemyPos1 = gameState.getAgentPosition(self.getOpponents(gameState)[0])  # TODO: make team-general
         enemyPos2 = gameState.getAgentPosition(self.getOpponents(gameState)[1])
 
+        scaredTimer = successorState.scaredTimer
+
+        # print scaredTimer
+
         if enemyPos1 is not None:
             enemydist1 = self.getMazeDistance(successorPos, enemyPos1)
-            if enemydist1 < 3:
+            if enemydist1 < 3 and scaredTimer < 4:
                 features['terror'] += 2 - enemydist1
             if enemydist1 is 0:
                 features['distanceFromEnemy1'] = 1000.0
@@ -318,7 +325,7 @@ class OffensiveReflexAgent(DefaultAgent):
                 features['distanceFromEnemy1'] *= 50
         if enemyPos2 is not None:
             enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
-            if enemyPos2 is not None and enemydist2 < 3:
+            if enemyPos2 is not None and enemydist2 < 3 and scaredTimer < 4:
                 features['terror'] += 2 - enemydist2
             if enemydist2 is 0:
                 features['distanceFromEnemy2'] = 1000.0
@@ -434,6 +441,20 @@ class DefensiveReflexAgent(DefaultAgent):
         foodLen = len(ourFood)
         features['numFood'] = foodLen
 
+
+        # Charge to last eaten food
+        previousState = self.getPreviousObservation()
+        if previousState is not None:
+            prevFoodList = set(self.getFoodYouAreDefending(previousState).asList())
+            eatenFood = prevFoodList - set(ourFood)
+            if len(eatenFood) > 0:
+                for i in eatenFood:
+                    self.lastEatenFood = i
+
+        # self.debugDraw(self.lastEatenFood, [1,1,0], clear=True)
+        features['distanceToLastEatenFood'] = 1/float(self.getMazeDistance(self.lastEatenFood, myPos)+9)
+
+
         # Distance to random three pieces of food
         if foodLen > 0:
             distancesToRandomFood = []
@@ -489,10 +510,12 @@ class DefensiveReflexAgent(DefaultAgent):
 
         return features
 
+        # TODO Go towards last food eaten
+
     def getWeights(self, gameState):
         return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
                 'numFood': 5, 'capsuleProximity': 10, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
-                'noisyClosestEnemy': -100, 'optimalDefenseTile': 2, 'distanceToFood': 1}
+                'noisyClosestEnemy': -10, 'optimalDefenseTile': 2, 'distanceToFood': 1, 'distanceToLastEatenFood': 5}
 
 
 class DummyAgent(CaptureAgent):
@@ -714,7 +737,7 @@ def findDeadEnds(gameState):
         for j in range(walls.height):
             if walls[i][j] is False:
                 walls[i][j] = ' '
-    print(walls)
+    # print(walls)
     return deadEnds
 
 
@@ -802,7 +825,7 @@ def findOptimalDefenseTile(ourSideGrid, agent):
         if sumOfDistances / n < lowestSoFar:
             lowestSoFar = sumOfDistances / n
             bestDefenseTile = legalPosition
-    print bestDefenseTile
+    # print bestDefenseTile
 
     return bestDefenseTile
 
