@@ -62,6 +62,22 @@ class DefaultAgent(CaptureAgent):
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
         self.deadEnds = findDeadEnds(gameState)
+        self.enemySide = getOpposideSidePositions(gameState, self.index)
+        self.ourSide = getOurSidePositions(gameState, self.index)
+
+        self.ourBorder = getOurBorder(gameState, self.index)
+
+        # getBackHomePolicy maps to the closest home tile and the mazeDistance to that tile
+        self.getBackHomePolicy = findBestPathsHome(self.ourBorder, self.enemySide, self)
+
+        # find optimal defense tile by calculating the maze distances to every single tile on our side
+        self.optimalDefenseTile = findOptimalDefenseTile(self.ourSide, self)
+
+        # self.debugDraw(self.optimalDefenseTile, [0, 0, 1])
+
+        # self.debugDraw(self.enemySide, [0,0,1])
+        # self.debugDraw(self.ourBorder, [0,1,0])
+        # self.debugDraw(self.ourSide, [0, 1, 0])
 
     def chooseAction(self, gameState):
         """
@@ -415,8 +431,22 @@ class DefensiveReflexAgent(DefaultAgent):
         # Amount of food left
 
         ourFood = self.getFoodYouAreDefending(gameState).asList()
+        foodLen = len(ourFood)
+        features['numFood'] = foodLen
 
-        features['numFood'] = len(ourFood)
+        # Distance to random three pieces of food
+        if foodLen > 0:
+            distancesToRandomFood = []
+            # self.debugDraw([(0,0)], [1, 1, 1], clear=True)
+            for _ in range(3):
+                randomInt = random.randint(0,foodLen-1)
+                distancesToRandomFood.append(self.getMazeDistance(ourFood[randomInt], myPos))
+                # self.debugDraw(ourFood[randomInt], [1,1,1])
+            avgDistance = sum(distancesToRandomFood)/3
+
+            features['distanceToFood'] = 1/(avgDistance+9.0)
+
+            # print features['distanceToFood']
 
         # Capsule Defense
 
@@ -449,12 +479,20 @@ class DefensiveReflexAgent(DefaultAgent):
             # print allyNoisyDistances
             features['noisyClosestEnemy'] = min(enemyNoisyDistances)
 
+        # Distance to optimal defense tile
+
+        distanceToOptimalDefenseTile = self.getMazeDistance(self.optimalDefenseTile, myPos)
+        if distanceToOptimalDefenseTile == 0:
+            features['optimalDefenseTile'] = 1
+        else:
+            features['optimalDefenseTile'] = 1/(float(distanceToOptimalDefenseTile)+9)
+
         return features
 
     def getWeights(self, gameState):
         return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
                 'numFood': 5, 'capsuleProximity': 10, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
-                'noisyClosestEnemy': -100}
+                'noisyClosestEnemy': -100, 'optimalDefenseTile': 2, 'distanceToFood': 1}
 
 
 class DummyAgent(CaptureAgent):
@@ -679,6 +717,7 @@ def findDeadEnds(gameState):
     print(walls)
     return deadEnds
 
+
 def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
     wallcount = 0
     deadEndDict = {}
@@ -699,3 +738,97 @@ def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
 
         deadEndDict.update(checkIfDeadEnd(path[0][0], path[0][1], wallgrid, (i, j)))
     return deadEndDict
+
+
+def getOpposideSidePositions(gameState, playerIndex):
+    halfwayWidth = gameState.getWalls().width // 2
+    rightSide = getLegalPositionsOneSide(gameState, halfwayWidth, gameState.getWalls().width)
+    leftSide = getLegalPositionsOneSide(gameState, 0, halfwayWidth)
+
+    if gameState.getInitialAgentPosition(playerIndex)[0] > halfwayWidth:
+        return leftSide
+    else:
+        return rightSide
+
+
+def getOurSidePositions(gameState, playerIndex):
+    halfwayWidth = gameState.getWalls().width // 2
+    rightSide = getLegalPositionsOneSide(gameState, halfwayWidth, gameState.getWalls().width)
+    leftSide = getLegalPositionsOneSide(gameState, 0, halfwayWidth)
+
+    if gameState.getInitialAgentPosition(playerIndex)[0] < halfwayWidth:
+        return leftSide
+    else:
+        return rightSide
+
+
+def getOurBorder(gameState, playerIndex):
+    halfwayWidth = gameState.getWalls().width // 2
+
+    if gameState.getInitialAgentPosition(playerIndex)[0] > halfwayWidth:
+        return getLegalPositionsOneSide(gameState, halfwayWidth, halfwayWidth + 1)
+
+    else:
+        return getLegalPositionsOneSide(gameState, halfwayWidth - 1, halfwayWidth)
+
+
+def findBestPathsHome(border, oppositeGrid, agent):
+    closestBorderTiles = util.Counter()
+    for legalPosition in oppositeGrid:
+        closestDistance = 10000
+        bestTile = None
+        for borderTile in border:
+            distance = agent.getMazeDistance(borderTile, legalPosition)
+            if distance < closestDistance:
+                closestDistance = distance
+                bestTile = borderTile
+
+        closestBorderTiles[legalPosition] = [bestTile, closestDistance]
+
+    return closestBorderTiles
+
+
+def findOptimalDefenseTile(ourSideGrid, agent):
+    lowestSoFar = 100000
+    bestDefenseTile = None
+    n = len(ourSideGrid) - 1
+
+    for legalPosition in ourSideGrid:
+        sumOfDistances = 0
+        for legalPosition2 in ourSideGrid:
+            if legalPosition2 == legalPosition:
+                continue
+            sumOfDistances += agent.getMazeDistance(legalPosition, legalPosition2)
+        if sumOfDistances / n < lowestSoFar:
+            lowestSoFar = sumOfDistances / n
+            bestDefenseTile = legalPosition
+    print bestDefenseTile
+
+    return bestDefenseTile
+
+
+#########
+# UTILS #
+#########
+def getLegalPositions(gameState, width=None, height=None):
+    if width is None:
+        width = gameState.getWalls().width
+    if height is None:
+        height = gameState.getWalls().height
+    walls = set(gameState.getWalls().asList())
+    legalPosList = []
+    for i in range(width[0], width[1]):
+        for j in range(height):
+            if (i, j) not in walls:
+                legalPosList.append((i, j))
+    return legalPosList
+
+
+def getLegalPositionsOneSide(gameState, widthStart, widthEnd):
+    walls = set(gameState.getWalls().asList())
+    legalPosList = []
+    for i in range(widthStart, widthEnd):
+        for j in range(gameState.getWalls().height):
+            if (i, j) not in walls:
+                legalPosList.append((i, j))
+    return legalPosList
