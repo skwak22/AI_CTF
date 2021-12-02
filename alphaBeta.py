@@ -18,7 +18,6 @@ from game import Directions
 import game
 from util import nearestPoint
 import itertools
-import initializationfunctions
 
 
 ###########
@@ -66,7 +65,7 @@ class DefaultAgent(CaptureAgent):
         # self.opponentTeamAgents = tuple(self.getOpponents(gameState))
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
-        self.deadEnds = initializationfunctions.findDeadEnds(gameState)
+        self.deadEnds = findDeadEnds(gameState)
 
     def chooseAction(self, gameState):
         """
@@ -74,9 +73,7 @@ class DefaultAgent(CaptureAgent):
         """
 
         # determine minimax depth
-        DEPTH = 4
-
-        # trying aB
+        DEPTH = 3
 
         # find the known positions of all agents
         knownPositions = []
@@ -87,21 +84,21 @@ class DefaultAgent(CaptureAgent):
             if gameState.getAgentPosition(i) is not None and i in self.getOpponents(gameState):
                 enemiesSeen.append(i)
 
-
         # If we can't see any enemies, just return the best action
 
         if len(enemiesSeen) > 1:
             closest = 10000
             for enemy in enemiesSeen:
-                mazeDist = self.getMazeDistance(gameState.getAgentPosition(self.index), gameState.getAgentPosition(enemy))
+                mazeDist = self.getMazeDistance(gameState.getAgentPosition(self.index),
+                                                gameState.getAgentPosition(enemy))
                 if mazeDist < closest:
                     closest = mazeDist
                     enemiesSeen = [enemy]
 
             # discard enemy if irrelevant (more than 8 distance away from agent)
-            if self.getMazeDistance(gameState.getAgentPosition(enemiesSeen[0]), gameState.getAgentPosition(self.index)) > 8:
+            if self.getMazeDistance(gameState.getAgentPosition(enemiesSeen[0]),
+                                    gameState.getAgentPosition(self.index)) > 8:
                 enemiesSeen = []
-
 
         if len(enemiesSeen) == 0:
             actions = gameState.getLegalActions(self.index)
@@ -143,7 +140,6 @@ class DefaultAgent(CaptureAgent):
 
         # if more than one enemy is seen, only run minimax on the one closest to our current agent
 
-
         def alpha_beta_search(gameState):
 
             # implement forward pruning, where we sort available actions and only consider the top n actions
@@ -155,7 +151,7 @@ class DefaultAgent(CaptureAgent):
             init_beta = 10000000
             init_alpha = -100000000
             reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
-            actions = self.forwardPrune(gameState, actions, self.index, reverse, 3)
+            actions = self.forwardPrune(gameState, actions, self.index, reverse, 2)
             for action in actions:
                 if len(actions) > 1 and action == "Stop":
                     continue
@@ -209,7 +205,6 @@ class DefaultAgent(CaptureAgent):
 
         return alpha_beta_search(gameState)
 
-
     def getSuccessor(self, gameState, action):
         """
         Finds the next successor which is a grid position (location tuple).
@@ -247,8 +242,8 @@ class DefaultAgent(CaptureAgent):
         return {'successorScore': 1.0}
 
     def forwardPrune(self, gameState, actions, player, reverse, num):
-        #our team
-        #sort actions and return the top n actions
+        # our team
+        # sort actions and return the top n actions
         score = []
         for action in actions:
             successor = gameState.generateSuccessor(player, action)
@@ -263,8 +258,8 @@ class DefaultAgent(CaptureAgent):
             return [i[1] for i in score[:1]]
 
     def forwardPruneTheEnemy(self, gameState, actions, player, num):
-        #enemy team
-        #sort actions and return the bottom n actions
+        # enemy team
+        # sort actions and return the bottom n actions
         score = []
         for action in actions:
             successor = gameState.generateSuccessor(player, action)
@@ -459,10 +454,12 @@ class DefensiveReflexAgent(DefaultAgent):
             features['noisyClosestEnemy'] = min(enemyNoisyDistances)
 
         return features
+
     def getWeights(self, gameState):
         return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
                 'numFood': 5, 'capsuleProximity': 10, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
                 'noisyClosestEnemy': -100}
+
 
 class DummyAgent(CaptureAgent):
     """
@@ -651,3 +648,58 @@ class JointParticleFilter:
         # finish
 
         return tuple(particle)
+
+
+############################
+# Initialization Functions #
+############################
+
+def findDeadEnds(gameState):
+    walls = gameState.getWalls()
+    deadEnds = {}  # dict storing cells that are dead ends, and the direction to go to escape them
+    for i in range(walls.width):
+        for j in range(walls.height):
+            if not walls[i][j]:  # check for out of bounds? prob not necessary, walls at border likely
+                # wallcount = 0
+                # path = [(i+1, j),(i,j+1), (i-1, j), (i,j-1)]
+                # pathdirs = ['E','N', 'W', 'S']
+                #
+                # for adj in list(path):
+                #     if walls[adj[0]][adj[1]]:
+                #         index = path.index(adj)
+                #         path.remove(adj)
+                #         del pathdirs[index]
+                # if len(path) is 1: # is a dead end
+                #     deadEnds[(i,j)] = (path[0], pathdirs[0])
+                deadEnds.update(checkIfDeadEnd(i, j, walls, None))
+
+    for deadEnd in deadEnds:
+        walls[deadEnd[0]][deadEnd[1]] = deadEnds[deadEnd][1]
+
+    for i in range(walls.width):
+        for j in range(walls.height):
+            if walls[i][j] is False:
+                walls[i][j] = ' '
+    print(walls)
+    return deadEnds
+
+def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
+    wallcount = 0
+    deadEndDict = {}
+    pathdirs = ['E', 'N', 'W', 'S']
+    path = [(i + 1, j), (i, j + 1), (i - 1, j), (i, j - 1)]
+    if confirmed_dead is not None:
+        index = path.index(confirmed_dead)
+        path.remove(confirmed_dead)
+        del pathdirs[index]
+
+    for adj in list(path):
+        if wallgrid[adj[0]][adj[1]]:
+            index = path.index(adj)
+            path.remove(adj)
+            del pathdirs[index]
+    if len(path) is 1:  # is a dead end
+        deadEndDict[(i, j)] = (path[0], pathdirs[0])
+
+        deadEndDict.update(checkIfDeadEnd(path[0][0], path[0][1], wallgrid, (i, j)))
+    return deadEndDict
