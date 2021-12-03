@@ -25,9 +25,11 @@ import itertools
 #################
 # Team creation #
 #################
+Agent1 = None
+Agent2 = None
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first='DefensiveReflexAgent', second='OffensiveReflexAgent'):
+               first='OffensiveReflexAgent', second='DefensiveReflexAgent'):
     """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -44,7 +46,11 @@ def createTeam(firstIndex, secondIndex, isRed,
   """
 
     # The following line is an example only; feel free to change it.
-    return [eval(first)(firstIndex), eval(second)(secondIndex)]
+    global Agent1
+    global Agent2
+    Agent1 = eval(first)(firstIndex)
+    Agent2 = eval(second)(secondIndex)
+    return [Agent1,Agent2]
 
 
 ##########
@@ -61,6 +67,7 @@ class DefaultAgent(CaptureAgent):
         # self.opponentTeamAgents = tuple(self.getOpponents(gameState))
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
+        self.timeleft = 300
         self.deadEnds = findDeadEnds(gameState)
         self.enemySide = getOpposideSidePositions(gameState, self.index)
         self.ourSide = getOurSidePositions(gameState, self.index)
@@ -86,9 +93,9 @@ class DefaultAgent(CaptureAgent):
         """
         Picks among the actions with the highest Q(s,a).
         """
-
+        self.timeleft = self.timeleft-1
         # determine minimax depth
-        DEPTH = 3
+        DEPTH = 4
 
         # find the known positions of all agents
         knownPositions = []
@@ -493,6 +500,8 @@ class DefensiveReflexAgent(DefaultAgent):
 
         if len(invaders) == 0:
             noisyDistances = gameState.getAgentDistances()
+            print(self.index)
+            print(noisyDistances)
             opps = self.getOpponents(gameState)
             enemyNoisyDistances = [noisyDistances[opps[0]], noisyDistances[opps[1]]]
             allys = self.getTeam(gameState)
