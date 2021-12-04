@@ -40,6 +40,7 @@ class ParticleFilter:
         self.legalPositions = getLegalPositions(gameState)
         self.opponentStartingPos = self.getOpponentStartingPosition(gameState, myOpponent)
         self.setBothToStart()
+        self.previousFood = None
         # self.initializeParticles()
         # self.initialize(gameState)
         # self.counter = gameState.
@@ -82,7 +83,8 @@ class ParticleFilter:
 
 
 
-    def observeState(self, gameState, agentIndex):
+    def observeState(self, Agent, gameState, agentIndex, justMoved):
+
         myPos = gameState.getAgentPosition(agentIndex)
         noisyDistances = gameState.getAgentDistances()
         # emissionModels = [busters.getObservationDistribution(dist) for dist in noisyDistances]
@@ -91,19 +93,30 @@ class ParticleFilter:
         new_belief_distribution = util.Counter()
 
         belief_distribution = self.getBeliefDistribution()
+        enemyPos = None
+        if justMoved and self.previousFood is not None: # if we're looking at the agent that just moved, check for eaten food
+            eatenFood = [f for f in self.previousFood if f not in Agent.getFoodYouAreDefending(gameState).asList()]
+            if len(eatenFood) > 0:
+                print(eatenFood)
+                enemyPos = eatenFood[0]
+        else:
+            enemyPos = gameState.getAgentPosition(self.myOpponent)
 
-        enemyPos = gameState.getAgentPosition(self.myOpponent)
         if enemyPos is not None:
             new_belief_distribution[enemyPos] = 1
         else:
             for position, particle_weight in belief_distribution.iteritems():
                 # print(particle_weight)
                 true_distance = util.manhattanDistance(myPos, position)
-                if gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) > 0:
-                    if new_belief_distribution[position] > 0:
-                        new_belief_distribution[position] = new_belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) * 1000000
-                    else:
-                        new_belief_distribution[position] = belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) * 1000000  # the * 1000000 is necessary for success. Rounding errors?
+                if true_distance < 6: # if they're in a place where we'd see them guaranteed
+                    new_belief_distribution[position] = 0
+                else:
+
+                    if gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) > 0:
+                        if new_belief_distribution[position] > 0:
+                            new_belief_distribution[position] = new_belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) * 1000000
+                        else:
+                            new_belief_distribution[position] = belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) * 1000000  # the * 1000000 is necessary for success. Rounding errors?
 
         if sum(new_belief_distribution.values()) == 0:  # handles case where there is 0 weight in particles
             self.initializeParticles()
@@ -115,6 +128,8 @@ class ParticleFilter:
             new_belief_distribution.normalize()
             self.particles = util.nSample(new_belief_distribution.values(), new_belief_distribution.keys(),
                                           self.numParticles)
+
+        self.previousFood = Agent.getFoodYouAreDefending(gameState).asList()
 
         #
         # opponentPos = [None for _ in range(4)]
@@ -331,14 +346,13 @@ class ReflexCaptureAgent(CaptureAgent):
         enemyThatMoved = self.index - 1 # TODO: if you have the first turn there should be a special case here
         if enemyThatMoved == -1:
             enemyThatMoved = 3
-        print(enemyThatMoved)
         self.particleFilters[enemyThatMoved].elapseTime(gameState)
 
         otherEnemy = enemyThatMoved + 2
         if otherEnemy > 3:
             otherEnemy = otherEnemy - 4
-        self.particleFilters[enemyThatMoved].observeState(gameState, self.index)
-        self.particleFilters[otherEnemy].observeState(gameState, self.index)
+        self.particleFilters[enemyThatMoved].observeState(self, gameState, self.index, True)
+        self.particleFilters[otherEnemy].observeState(self, gameState, self.index, False)
 
         beliefs1 = self.particleFilters[self.getOpponents(gameState)[0]].getBeliefDistribution()
         beliefs2 = self.particleFilters[self.getOpponents(gameState)[1]].getBeliefDistribution()
