@@ -16,7 +16,7 @@ def getLegalPositions(gameState):
                 legalPosList.append((i, j))
     return legalPosList
 
-class JointParticleFilter:
+class ParticleFilter:
     """
     JointParticleFilter tracks a joint distribution over tuples of all ghost
     positions.
@@ -24,7 +24,7 @@ class JointParticleFilter:
 
 
 
-    def __init__(self, myteam, opponents, gameState, numParticles=200):
+    def __init__(self, myteam, myOpponent, gameState, numParticles=100):
         self.setNumParticles(numParticles)
         self.particles = []
         # self.Agent1 = Agent1
@@ -32,14 +32,13 @@ class JointParticleFilter:
         self.agent1index = myteam[0]
         self.agent2index = myteam[1]
         self.gameState = gameState
-        self.opponents = opponents
+        self.myOpponent = myOpponent
         self.height = gameState.getWalls().height
         self.width = gameState.getWalls().width
         self.startingPos1 = gameState.getAgentPosition(self.agent1index)# TODO: get position from agent state?
         self.startingPos2 = gameState.getAgentPosition(self.agent2index)
         self.legalPositions = getLegalPositions(gameState)
-        self.opponentStartingPos1 = self.getOpponentStartingPosition(gameState, self.opponents[0])
-        self.opponentStartingPos2 = self.getOpponentStartingPosition(gameState, self.opponents[1])
+        self.opponentStartingPos = self.getOpponentStartingPosition(gameState, myOpponent)
         self.setBothToStart()
         # self.initializeParticles()
         # self.initialize(gameState)
@@ -69,27 +68,18 @@ class JointParticleFilter:
 
     def setBothToStart(self):
         for _ in range(self.numParticles):
-            self.particles.append((self.opponentStartingPos1, self.opponentStartingPos2))  # initialize with tuple
+            self.particles.append(self.opponentStartingPos)  # initialize with tuple
 
     def initializeParticles(self):
         """
-        Initialize particles to be at the starting position of the opponent's side
-        (mirror of our pacman's start) if we are calling this for the first time
-        else, initialize uniformly
+        initialize uniformly
         """
-        cartProduct = list(itertools.product(self.legalPositions, repeat=2))
-        random.shuffle(cartProduct)
+        self.particles = []
+        location_index = 0
+        for i in range(self.numParticles): # check this is right
+            self.particles.append(self.legalPositions[location_index])
+            location_index = (location_index + 1) % len(self.legalPositions)
 
-        positionsLength = self.numParticles
-        whole = positionsLength // len(cartProduct)
-        remain = positionsLength % len(cartProduct)
-        for i in range(whole):
-            for c in cartProduct:
-                self.particles.append(c)
-        index = 0
-        for i in range(remain):
-            self.particles.append(cartProduct[index])
-            index += 1
 
 
     def observeState(self, gameState, agentIndex):
@@ -101,19 +91,19 @@ class JointParticleFilter:
         new_belief_distribution = util.Counter()
 
         belief_distribution = self.getBeliefDistribution()
-        # for i in belief_distribution:
-        #     new_belief_distribution[i] = belief_distribution[i] # initialize with old values
-        enemyPos1 = gameState.getAgentPosition(self.getOpponents(gameState)[0])  # TODO: make team-general
-        enemyPos2 = gameState.getAgentPosition(self.getOpponents(gameState)[1])
-        for position, particle_weight in belief_distribution.iteritems():
-            # print(particle_weight)
-            for i in range(len(self.opponents)):
-                true_distance = util.manhattanDistance(myPos, position[i])
-                if gameState.getDistanceProb(true_distance, noisyDistances[self.opponents[i]]) > 0:
+
+        enemyPos = gameState.getAgentPosition(self.myOpponent)
+        if enemyPos is not None:
+            new_belief_distribution[enemyPos] = 1
+        else:
+            for position, particle_weight in belief_distribution.iteritems():
+                # print(particle_weight)
+                true_distance = util.manhattanDistance(myPos, position)
+                if gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) > 0:
                     if new_belief_distribution[position] > 0:
-                        new_belief_distribution[position] = new_belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.opponents[i]]) * 1000000
+                        new_belief_distribution[position] = new_belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) * 1000000
                     else:
-                        new_belief_distribution[position] = belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.opponents[i]]) * 1000000  # the * 1000000 is necessary for success. Rounding errors?
+                        new_belief_distribution[position] = belief_distribution[position] * gameState.getDistanceProb(true_distance, noisyDistances[self.myOpponent]) * 1000000  # the * 1000000 is necessary for success. Rounding errors?
 
         if sum(new_belief_distribution.values()) == 0:  # handles case where there is 0 weight in particles
             self.initializeParticles()
@@ -176,24 +166,19 @@ class JointParticleFilter:
         #         self.particles[i] = util.sample(beliefDist)
 
 
-    def elapseTime(self, gameState, agentIndex):
-        if agentIndex ==0: # oppIndex is the index of the opp that is actually being updated
-            oppIndex = 3
-        else:
-            oppIndex = agentIndex-1
+    def elapseTime(self, gameState):
         newParticles = []
-        for oldParticle in self.particles:
-            newParticle = list(oldParticle) # A list of ghost positions
 
-            newPosDist = self.getOppPosDistr(
-                self.setEnemyPositions(gameState, oldParticle), oppIndex)
-            newParticle[oppIndex/2] = util.sample(newPosDist)
+        for oldParticle in self.particles:
+            newPosDist = self.getOppPosDistr(gameState, oldParticle, self.myOpponent)
+            newParticle = util.sample(newPosDist)
             # now loop through and update each entry in newParticle...
 
             "*** YOUR CODE HERE ***"
 
             "*** END YOUR CODE HERE ***"
-            newParticles.append(tuple(newParticle))
+            newParticles.append(newParticle)
+
         self.particles = newParticles
         # print "elapsing time"
         # newParticles = []
@@ -246,30 +231,48 @@ class JointParticleFilter:
             dist[successorPosition] = prob
         return dist
 
-    def getOppPosDistr(self, gameState, enemyIndex):
-        enemyPos = gameState.getAgentPosition(enemyIndex)
+    def getOppPosDistr(self, gameState, enemyPos, enemyIndex):
+        # enemyPos = gameState.getAgentPosition(enemyIndex)
+        walls = gameState.getWalls()
+        legalMoves = ["Stop"]
+        positions = {"Stop":enemyPos}
+        if not walls[enemyPos[0]-1][enemyPos[1]]:
+            legalMoves.append('West')
+            positions['West'] = (enemyPos[0]-1,enemyPos[1])
+        if not walls[enemyPos[0]+1][enemyPos[1]]:
+            legalMoves.append('East')
+            positions['East'] = (enemyPos[0]+1,enemyPos[1])
+
+        if not walls[enemyPos[0]][enemyPos[1]-1]:
+            legalMoves.append('South')
+            positions['South'] =(enemyPos[0],enemyPos[1]-1)
+
+        if not walls[enemyPos[0]][enemyPos[1]+1]:
+            legalMoves.append('North')
+            positions['North'] = (enemyPos[0],enemyPos[1]+1)
+
         dist = util.Counter()
 
         if enemyPos is None:
-            dist[self.opponentStartingPos1] = 1 #TODO: this is placeholder
+            dist[self.opponentStartingPos] = 1 #TODO: this is placeholder
             return dist
-        actions = gameState.getLegalActions(agentIndex=enemyIndex)
+        # actions = gameState.getLegalActions(agentIndex=enemyIndex)
         actionDist = util.Counter()
-        for a in actions:
+        for a in legalMoves:
             # if a is "SOUTH":
             #     actionDist[a] +=100
             actionDist[a] += 1
         actionDist.normalize()
 
         for action, prob in actionDist.items():
-            successorPosition = gameState.generateSuccessor(enemyIndex, action).getAgentState(enemyIndex).getPosition()
+            # successorPosition = gameState.generateSuccessor(enemyIndex, action).getAgentState(enemyIndex).getPosition()
+            successorPosition = positions[action]
             dist[successorPosition] = prob
         return dist
 
-    def setEnemyPositions(self, gameState, enemyPositions):
-        for index, pos in enumerate(enemyPositions):
-            conf = game.Configuration(pos, game.Directions.STOP)
-            gameState.data.agentStates[index+1] = game.AgentState(conf, False)
+    def setEnemyPositions(self, gameState, enemyPosition):
+        conf = game.Configuration(enemyPosition, game.Directions.STOP)
+        gameState.data.agentStates[self.myOpponent] = game.AgentState(conf, False)
         return gameState
 
 
@@ -294,9 +297,10 @@ def createTeam(firstIndex, secondIndex, isRed,
     any extra arguments, so you should make sure that the default
     behavior is what you want for the nightly contest.
     """
-    jointInference = None
-
-    return [eval(first)(firstIndex,jointInference), eval(second)(secondIndex,jointInference)]
+    Inference1 = None
+    Inference2 = None
+    particleFilters = {}
+    return [eval(first)(firstIndex,particleFilters), eval(second)(secondIndex,particleFilters)]
 
 
 ##########
@@ -307,37 +311,56 @@ class ReflexCaptureAgent(CaptureAgent):
     """
     A base class for reflex agents that chooses score-maximizing actions
     """
-    def __init__(self, index, jointInference):
+    def __init__(self, index, particleFilters):
         CaptureAgent.__init__(self,index)
-        self.jointInference = jointInference
+        self.particleFilters = particleFilters
 
     def registerInitialState(self, gameState):
 
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
         self.legalPositions = self.getLegalPositions(gameState)
-        if self.jointInference is None:
-            self.jointInference = JointParticleFilter(self.getTeam(gameState), self.getOpponents(gameState),gameState)
+        if len(self.particleFilters) ==0:
+            self.particleFilters[self.getOpponents( gameState)[0]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[0],gameState)
+            self.particleFilters[self.getOpponents(gameState)[1]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[1] ,gameState)
+
             # self.jointInference.initialize(gameState, self.legalPositions, self)
+
+    def getAndUpdateBeliefs(self, gameState):
+
+        enemyThatMoved = self.index - 1 # TODO: if you have the first turn there should be a special case here
+        if enemyThatMoved == -1:
+            enemyThatMoved = 3
+        print(enemyThatMoved)
+        self.particleFilters[enemyThatMoved].elapseTime(gameState)
+
+        otherEnemy = enemyThatMoved + 2
+        if otherEnemy > 3:
+            otherEnemy = otherEnemy - 4
+        self.particleFilters[enemyThatMoved].observeState(gameState, self.index)
+        self.particleFilters[otherEnemy].observeState(gameState, self.index)
+
+        beliefs1 = self.particleFilters[self.getOpponents(gameState)[0]].getBeliefDistribution()
+        beliefs2 = self.particleFilters[self.getOpponents(gameState)[1]].getBeliefDistribution()
+        self.debugDraw(getLegalPositions(gameState), [0, 0, 0], clear=True)
+
+        for pos in beliefs1:
+            self.debugDraw([pos], [0, 0, min(beliefs1[pos] * 5, 1)], clear=False)
+        for pos in beliefs2:
+            self.debugDraw([pos], [min(beliefs2[pos] * 5, 1), 0, 0], clear=False)
+
+        return beliefs1, beliefs2
 
     def chooseAction(self, gameState):
         """
         Picks among the actions with the highest Q(s,a).
         """
 
-        self.jointInference.observeState(gameState, self.index)
 
-        self.jointInference.elapseTime(gameState, self.index)
-        beliefs = self.jointInference.getBeliefDistribution()
-        # print(beliefs)
-        self.debugDraw(getLegalPositions(gameState),[0,0,0], clear=True)
-        if self.red:
-            for pos in beliefs:
-                self.debugDraw([i for i in pos],[0,0,min(beliefs[pos]*5,1)],clear=False)
-        else:
-            for pos in beliefs:
-                self.debugDraw([i for i in pos],[min(beliefs[pos]*5,1),0,0],clear=False)
+        beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
+
         actions = gameState.getLegalActions(self.index)
+
 
         # You can profile your evaluation time by uncommenting these lines
         # start = time.time()
