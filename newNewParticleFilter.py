@@ -13,17 +13,16 @@
 
 
 from captureAgents import CaptureAgent
-import random, time, util
+import random, util
 from game import Directions
 import game
 from util import nearestPoint
 import itertools
-
-
+import time
 # on initialization - mark dead end spots, mark the way towards the exit at them
-
 teamIsRed = None
-
+TIME_ALLOWANCE = 0.4
+DRAW = False
 #################
 # Team creation #
 #################
@@ -114,7 +113,11 @@ class DefaultAgent(CaptureAgent):
 
 
         # self.debugDraw(self.enemySide, [0,0,1])
-        self.debugDraw(self.borderForPatroling, [0,1,0])
+
+
+        # self.debugDraw(self.borderForPatroling, [0,1,0])
+
+
         # self.debugDraw(self.ourSide, [0, 1, 0])
 
     def getAndUpdateBeliefs(self, gameState):
@@ -135,10 +138,11 @@ class DefaultAgent(CaptureAgent):
         beliefs2 = self.particleFilters[self.getOpponents(gameState)[1]].getBeliefDistribution()
         self.debugDraw(getLegalPositions(gameState), [0, 0, 0], clear=True)
 
-        for pos in beliefs1:
-            self.debugDraw([pos], [0, 0, min(beliefs1[pos] * 5, 1)], clear=False)
-        for pos in beliefs2:
-            self.debugDraw([pos], [min(beliefs2[pos] * 5, 1), 0, 0], clear=False)
+        if(DRAW):
+            for pos in beliefs1:
+                self.debugDraw([pos], [0, 0, min(beliefs1[pos] * 5, 1)], clear=False)
+            for pos in beliefs2:
+                self.debugDraw([pos], [min(beliefs2[pos] * 5, 1), 0, 0], clear=False)
 
         return beliefs1, beliefs2
 
@@ -146,6 +150,8 @@ class DefaultAgent(CaptureAgent):
         """
         Picks among the actions with the highest Q(s,a).
         """
+        start = time.time()
+        print(start)
         self.movesLeft -= 1
         beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
 
@@ -160,15 +166,19 @@ class DefaultAgent(CaptureAgent):
             if teamIsRed and self.getScore(gameState) < 0:
                 # we are losing on red
                 actions = gameState.getLegalActions(self.index)
+                print('final time')
+                print(time.time() - start)
                 return random.choice(actions)
             elif not teamIsRed and self.getScore(gameState) > 0:
                 # we are losing on blue
                 actions = gameState.getLegalActions(self.index)
+                print('final time')
+                print(time.time() - start)
                 return random.choice(actions)
             self.lastTimeScoreChanged = self.movesLeft
 
         # determine minimax depth
-        DEPTH = 3
+        DEPTH = 4
 
         # find the known positions of all agents
         knownPositions = []
@@ -199,7 +209,6 @@ class DefaultAgent(CaptureAgent):
 
         top_n = [i[1] for i in distributions[:N]]
 
-
         if len(enemiesSeen) >= 1:
             closest = 10000
             for enemy in enemiesSeen:
@@ -220,7 +229,6 @@ class DefaultAgent(CaptureAgent):
             reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
 
             # You can profile your evaluation time by uncommenting these lines
-            # start = time.time()
             successorStates = [gameState.generateSuccessor(self.index, action) for action in actions]
             values = []
             for i, successorState in enumerate(successorStates):
@@ -248,14 +256,17 @@ class DefaultAgent(CaptureAgent):
                     if dist < bestDist:
                         bestAction = action
                         bestDist = dist
+                print('final time')
+                print(time.time() - start)
                 return bestAction
-
+            print('final time')
+            print(time.time() - start)
             return random.choice(bestActions)
 
         # if more than one enemy is seen, only run minimax on the one closest to our current agent
 
-        def alpha_beta_search(gameState):
-
+        def alpha_beta_search(gameState, startTime):
+            print('hi')
             # implement forward pruning, where we sort available actions and only consider the top n actions
 
             actions = gameState.getLegalActions(self.index)
@@ -265,21 +276,27 @@ class DefaultAgent(CaptureAgent):
             init_beta = 10000000
             init_alpha = -100000000
             reverse = Directions.REVERSE[gameState.getAgentState(self.index).configuration.direction]
-            actions = self.forwardPrune(gameState, actions, self.index, reverse, 2)
+            actions = self.forwardPrune(gameState, actions, self.index, reverse, 2) #TODO: this is sorted right?
             for action in actions:
-                if len(actions) > 1 and action == "Stop":
+                if len(actions) > 1 and action == "Stop": #TODO: is this saying never stop?
                     continue
 
                 successorState = gameState.generateSuccessor(self.index, action)
 
-                score = min_value(successorState, enemiesSeen[0], 0, init_alpha, init_beta)
+                score = min_value(successorState, enemiesSeen[0], 0, init_alpha, init_beta,startTime)
                 if score > res_score:
                     res_score = score
                     res_action = action
                 init_alpha = max(init_alpha, score)
+                if (time.time() - startTime) > 0.9 * TIME_ALLOWANCE: #if less than 0.1 seconds left
+                    print(time.time() - startTime)
+
+                    break
+            print('final time')
+            print(time.time() - start)
             return res_action
 
-        def max_value(gameState, player, depth, alpha, beta):
+        def max_value(gameState, player, depth, alpha, beta, startTime):
             actions = gameState.getLegalActions(player)
             if len(actions) == 0:
                 return 0
@@ -293,13 +310,18 @@ class DefaultAgent(CaptureAgent):
                     continue
                 successorState = gameState.generateSuccessor(player, action)
                 v = max(v, min_value(successorState,
-                                     enemiesSeen[0], depth, alpha, beta))
+                                     enemiesSeen[0], depth, alpha, beta, startTime))
+
                 if v > beta:
                     return v
+                if (time.time() - startTime) > 0.9 * TIME_ALLOWANCE: #if less than 0.1 seconds left
+                    print(time.time() - startTime)
+
+                    break
                 alpha = max(alpha, v)
             return v
 
-        def min_value(gameState, player, depth, alpha, beta):
+        def min_value(gameState, player, depth, alpha, beta,startTime):
             actions = gameState.getLegalActions(player)
             if depth == DEPTH or actions == 0:
                 return self.evaluate(gameState, False, False)
@@ -311,13 +333,20 @@ class DefaultAgent(CaptureAgent):
                 successorState = gameState.generateSuccessor(player, action)
                 if player == enemiesSeen[0]:
                     v = min(v, max_value(successorState,
-                                         self.index, depth + 1, alpha, beta))
+                                         self.index, depth + 1, alpha, beta, startTime))
                 if v < alpha:
                     return v
+                if (time.time() - startTime) > 0.9 * TIME_ALLOWANCE: #if less than 0.1 seconds left
+                    print(time.time() - startTime)
+                    break
                 beta = min(beta, v)
+
             return v
 
-        return alpha_beta_search(gameState)
+        answer = alpha_beta_search(gameState, start)
+        print('final time')
+        print(time.time() - start)
+        return answer
 
     def getSuccessor(self, gameState, action):
         """
