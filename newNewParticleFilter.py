@@ -76,7 +76,7 @@ class DefaultAgent(CaptureAgent):
         # self.opponentTeamAgents = tuple(self.getOpponents(gameState))
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
-        self.deadEnds = findDeadEnds(gameState)
+        self.deadEnds, self.deadEndExitDict = findDeadEnds(self, gameState)
         self.enemySide = getOpposideSidePositions(gameState, self.index)
         self.ourSide = getOurSidePositions(gameState, self.index)
         self.enemySideAsASet = set(self.enemySide)
@@ -154,7 +154,6 @@ class DefaultAgent(CaptureAgent):
         Picks among the actions with the highest Q(s,a).
         """
         start = time.time()
-        print(start)
         self.movesLeft -= 1
         if PARTICLEFILTER:
             beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
@@ -604,7 +603,7 @@ class DefaultAgent(CaptureAgent):
         scaredTimer = successorState.scaredTimer
         teammatePos = successor.getAgentState(self.teammate[0]).getPosition()
 
-        if self.movesLeft < 10 and successorState.isPacman:
+        if self.movesLeft < 10 and successorState.isPacman: #TODO: improve
             # Astar search back home
             features['bookItHome'] = 1/float(self.getBackHomePolicy[successorPos][1] + 1)
 
@@ -626,7 +625,7 @@ class DefaultAgent(CaptureAgent):
 
 
         if enemyPos1 is not None:
-            if (teamIsRed and enemyPos1[0] > self.ourBorder[0][0]) or (not teamIsRed and enemyPos1[0] < self.ourBorder[0][0]):
+            if (teamIsRed and successorPos > self.ourBorder[0][0]) or (not teamIsRed and successorPos < self.ourBorder[0][0]):
 
 
                 enemydist1 = self.getMazeDistance(successorPos, enemyPos1)
@@ -639,18 +638,18 @@ class DefaultAgent(CaptureAgent):
                 # print(features['distanceFromEnemy1'])
                 if successorPos in self.deadEnds:
                     features['distanceFromEnemy1'] *= 50
-            if enemyPos2 is not None:
-                if (teamIsRed and enemyPos2[0] > self.ourBorder[0][0]) or (
-                        not teamIsRed and enemyPos2[0] < self.ourBorder[0][0]):
-                    enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
-                    if enemyPos2 is not None and enemydist2 < 3 and scaredTimer < 4:
-                        features['terror'] += 2 - enemydist2
-                    if enemydist2 is 0:
-                        features['distanceFromEnemy2'] = 1000.0
-                    else:
-                        features['distanceFromEnemy2'] = 1.0 / float(enemydist2)
-                    if successorPos in self.deadEnds:
-                        features['distanceFromEnemy2'] *= 50
+        if enemyPos2 is not None:
+            if (teamIsRed and successorPos > self.ourBorder[0][0]) or (
+                    not teamIsRed and successorPos < self.ourBorder[0][0]):
+                enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
+                if enemyPos2 is not None and enemydist2 < 3 and scaredTimer < 4:
+                    features['terror'] += 2 - enemydist2
+                if enemydist2 is 0:
+                    features['distanceFromEnemy2'] = 1000.0
+                else:
+                    features['distanceFromEnemy2'] = 1.0 / float(enemydist2)
+                if successorPos in self.deadEnds:
+                    features['distanceFromEnemy2'] *= 50
 
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minDistance = min([self.getMazeDistance(successorPos, food) for food in foodList])
@@ -675,9 +674,12 @@ class DefaultAgent(CaptureAgent):
                 features['distanceToHome'] = minDistToHome
 
             features['foodCarried'] = successorState.numCarrying
-
+            capsules = self.getCapsules(gameState)
+            for capsule in capsules:
+                features['CapsuleDist'] += 1.0/float(self.getMazeDistance(capsule, successorPos))
             features['BringingHomeBacon'] = float(features['foodCarried'] ** 2.0) / float(
                 features['distanceToHome'] + 1)
+            print(features)
 
         # print(features)
 
@@ -702,7 +704,7 @@ class DefaultAgent(CaptureAgent):
 
     def getWeightsOffensive(self, gameState):
         return {'successorScore': 100, 'distanceToFood': 2, 'distanceToHome': 0, 'BringingHomeBacon': 5,
-                'foodCarried': 5,
+                'foodCarried': 5, 'capsuleDist': 30,
                 'distanceFromEnemy1': -3, 'distanceFromEnemy2': -3, 'enemyCutOff': -10, 'terror': -100000000,
                 'closeToTeammate': -1, 'bookItHome': 100, 'atOrBeyondBorder': 3}
 
@@ -1015,8 +1017,10 @@ def evalOpponent(observer, opponent, gameState, enemyIndex):
 # Initialization Functions #
 ############################
 
-def findDeadEnds(gameState):
+def findDeadEnds(Agent, gameState):
     walls = gameState.getWalls()
+    deadEndExits = []
+
     deadEnds = {}  # dict storing cells that are dead ends, and the direction to go to escape them
     for i in range(walls.width):
         for j in range(walls.height):
@@ -1032,20 +1036,33 @@ def findDeadEnds(gameState):
                 #         del pathdirs[index]
                 # if len(path) is 1: # is a dead end
                 #     deadEnds[(i,j)] = (path[0], pathdirs[0])
-                deadEnds.update(checkIfDeadEnd(i, j, walls, None))
+                deadEnds2, deadEndExits = checkIfDeadEnd(i, j, walls, None,deadEndExits)
+                deadEnds.update(deadEnds2)
 
     for deadEnd in deadEnds:
         walls[deadEnd[0]][deadEnd[1]] = deadEnds[deadEnd][1]
+    for exit in deadEndExits:
+        walls[exit[0]][exit[1]] = 'A'
 
     for i in range(walls.width):
         for j in range(walls.height):
             if walls[i][j] is False:
                 walls[i][j] = ' '
-    # print(walls)
-    return deadEnds
 
 
-def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
+    exitDict = {}
+    for pos in deadEnds:
+        minDist = 9999
+        minExit = None
+        for exit in deadEndExits:
+            if Agent.getMazeDistance(exit, pos) < minDist:
+                minDist = Agent.getMazeDistance(exit, pos)
+                minExit = exit
+        exitDict[pos] = minExit
+    print(walls)
+    return deadEnds, exitDict
+
+def checkIfDeadEnd(i, j, wallgrid, confirmed_dead, dead_end_exits):
     wallcount = 0
     deadEndDict = {}
     pathdirs = ['E', 'N', 'W', 'S']
@@ -1055,6 +1072,7 @@ def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
         path.remove(confirmed_dead)
         del pathdirs[index]
 
+
     for adj in list(path):
         if wallgrid[adj[0]][adj[1]]:
             index = path.index(adj)
@@ -1062,9 +1080,12 @@ def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
             del pathdirs[index]
     if len(path) is 1:  # is a dead end
         deadEndDict[(i, j)] = (path[0], pathdirs[0])
-
-        deadEndDict.update(checkIfDeadEnd(path[0][0], path[0][1], wallgrid, (i, j)))
-    return deadEndDict
+        deadEndDict2, dead_end_exits = checkIfDeadEnd(path[0][0], path[0][1], wallgrid, (i, j),dead_end_exits)
+        deadEndDict.update(deadEndDict2)
+    else:
+        if confirmed_dead is not None:
+            dead_end_exits.append((i,j))
+    return deadEndDict, dead_end_exits
 
 
 def getOpposideSidePositions(gameState, playerIndex):
