@@ -22,7 +22,7 @@ import time
 # on initialization - mark dead end spots, mark the way towards the exit at them
 teamIsRed = None
 TIME_ALLOWANCE = 0.4
-DRAW = False
+DRAW = True
 #################
 # Team creation #
 #################
@@ -809,7 +809,7 @@ class ParticleFilter:
 
 
 
-    def __init__(self, myteam, myOpponent, gameState, numParticles=100):
+    def __init__(self, myteam, myOpponent, gameState, numParticles=50):
         self.setNumParticles(numParticles)
         self.particles = []
         self.agent1index = myteam[0]
@@ -838,10 +838,9 @@ class ParticleFilter:
         initialize uniformly
         """
         self.particles = []
-        location_index = 0
+        legalPositionsLen = len(self.legalPositions)
         for i in range(self.numParticles): # check this is right
-            self.particles.append(self.legalPositions[location_index])
-            location_index = (location_index + 1) % len(self.legalPositions)
+            self.particles.append(self.legalPositions[random.randint(0,legalPositionsLen-1)])
 
 
 
