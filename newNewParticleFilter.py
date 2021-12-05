@@ -23,6 +23,7 @@ import time
 teamIsRed = None
 TIME_ALLOWANCE = 0.4
 DRAW = True
+PARTICLEFILTER = False
 #################
 # Team creation #
 #################
@@ -51,6 +52,7 @@ def createTeam(firstIndex, secondIndex, isRed,
     Inference2 = None
     particleFilters = {}
     return [eval(first)(firstIndex,particleFilters), eval(second)(secondIndex,particleFilters)]
+
 
 
 ##########
@@ -107,9 +109,10 @@ class DefaultAgent(CaptureAgent):
 
         self.movesLeft = 300
         # self.debugDraw(self.optimalDefenseTile, [0, 0, 1])
-        if len(self.particleFilters) ==0:
-            self.particleFilters[self.getOpponents(gameState)[0]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[0],gameState)
-            self.particleFilters[self.getOpponents(gameState)[1]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[1] ,gameState)
+        if PARTICLEFILTER:
+            if len(self.particleFilters) ==0:
+                self.particleFilters[self.getOpponents(gameState)[0]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[0],gameState)
+                self.particleFilters[self.getOpponents(gameState)[1]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[1] ,gameState)
 
 
         # self.debugDraw(self.enemySide, [0,0,1])
@@ -153,7 +156,8 @@ class DefaultAgent(CaptureAgent):
         start = time.time()
         print(start)
         self.movesLeft -= 1
-        beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
+        if PARTICLEFILTER:
+            beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
 
 
         if self.getScore(gameState) != self.lastScore:
@@ -579,8 +583,8 @@ class DefaultAgent(CaptureAgent):
 
     def getWeightsDefensive(self, gameState):
         return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
-                'numFood': 5, 'capsuleProximity': 10, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
-                'noisyClosestEnemy': -1, 'optimalDefenseTile': 2, 'distanceToFood': 1, 'distanceToLastEatenFood': 10000,
+                'numFood': 5, 'capsuleProximity': 0, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
+                'noisyClosestEnemy': -1, 'optimalDefenseTile': 2, 'distanceToFood': 1, 'distanceToLastEatenFood': 1000,
                 'closeToTeammate': -1, 'wrongSideOfFood': -3, 'borderPatrol': 3}
 
 
@@ -648,21 +652,6 @@ class DefaultAgent(CaptureAgent):
                     if successorPos in self.deadEnds:
                         features['distanceFromEnemy2'] *= 50
 
-        # beliefDistribution1 = util.Counter()
-        # beliefDistribution2 = util.Counter()
-
-        # features['terror'] = 0
-        # for possiblePos in beliefDistribution1:
-        #     features['distanceFromEnemy1'] += self.getMazeDistance(myPos, possiblePos) * beliefDistribution1[possiblePos]
-        #     if self.getMazeDistance(myPos, possiblePos) < 2:
-        #         features['terror'] +=beliefDistribution1[possiblePos]
-        # for possiblePos in beliefDistribution2:
-        #     features['distanceFromEnemy2'] += self.getMazeDistance(myPos, possiblePos) * beliefDistribution2[
-        #         possiblePos]
-        #     if self.getMazeDistance(myPos, possiblePos) < 2:
-        #         features['terror'] += beliefDistribution2[possiblePos]
-
-        # Compute distance to the nearest food
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minDistance = min([self.getMazeDistance(successorPos, food) for food in foodList])
             features['distanceToFood'] = 1 / float(minDistance)
@@ -809,7 +798,7 @@ class ParticleFilter:
 
 
 
-    def __init__(self, myteam, myOpponent, gameState, numParticles=50):
+    def __init__(self, myteam, myOpponent, gameState, numParticles=1):
         self.setNumParticles(numParticles)
         self.particles = []
         self.agent1index = myteam[0]
