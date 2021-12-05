@@ -5,7 +5,7 @@ from game import Directions
 import game
 from util import nearestPoint
 import itertools
-
+from ActualGeneralEvaluation import evalOffense
 
 def getLegalPositions(gameState):
     walls = set(gameState.getWalls().asList())
@@ -91,24 +91,24 @@ class ParticleFilter:
         # if len(noisyDistances) < self.opponents:
         #     return
         new_belief_distribution = util.Counter()
-
+        currentFood = set(Agent.getFoodYouAreDefending(gameState).asList())
         belief_distribution = self.getBeliefDistribution()
         enemyPos = None
         if justMoved and self.previousFood is not None: # if we're looking at the agent that just moved, check for eaten food
-            eatenFood = [f for f in self.previousFood if f not in Agent.getFoodYouAreDefending(gameState).asList()]
+            eatenFood = [f for f in self.previousFood if f not in currentFood]
             if len(eatenFood) > 0:
-                print(eatenFood)
                 enemyPos = eatenFood[0]
         else:
             enemyPos = gameState.getAgentPosition(self.myOpponent)
 
         if enemyPos is not None:
+
             new_belief_distribution[enemyPos] = 1
         else:
             for position, particle_weight in belief_distribution.iteritems():
                 # print(particle_weight)
                 true_distance = util.manhattanDistance(myPos, position)
-                if true_distance < 6: # if they're in a place where we'd see them guaranteed
+                if true_distance < 6 or position in currentFood: # if they're in a place where we'd see them guaranteed
                     new_belief_distribution[position] = 0
                 else:
 
@@ -129,7 +129,7 @@ class ParticleFilter:
             self.particles = util.nSample(new_belief_distribution.values(), new_belief_distribution.keys(),
                                           self.numParticles)
 
-        self.previousFood = Agent.getFoodYouAreDefending(gameState).asList()
+        self.previousFood = set(Agent.getFoodYouAreDefending(gameState).asList())
 
         #
         # opponentPos = [None for _ in range(4)]
@@ -181,11 +181,11 @@ class ParticleFilter:
         #         self.particles[i] = util.sample(beliefDist)
 
 
-    def elapseTime(self, gameState):
+    def elapseTime(self, observer, gameState):
         newParticles = []
 
         for oldParticle in self.particles:
-            newPosDist = self.getOppPosDistr(gameState, oldParticle, self.myOpponent)
+            newPosDist = self.getOppPosDistr(gameState,observer, oldParticle, self.myOpponent)
             newParticle = util.sample(newPosDist)
             # now loop through and update each entry in newParticle...
 
@@ -236,7 +236,6 @@ class ParticleFilter:
         actions = gameState.getLegalActions(agentIndex=ghostIndex)
 
         actionDist = util.Counter()
-        print actions
         for a in actions:
             actionDist[a] += 1
         actionDist.normalize()
@@ -244,9 +243,11 @@ class ParticleFilter:
         for action, prob in actionDist.items():
             successorPosition = gameState.generateSuccessor(ghostIndex, action).getAgentState(ghostIndex).getPosition()
             dist[successorPosition] = prob
+
+
         return dist
 
-    def getOppPosDistr(self, gameState, enemyPos, enemyIndex):
+    def getOppPosDistr(self, gameState, observer, enemyPos, enemyIndex):
         # enemyPos = gameState.getAgentPosition(enemyIndex)
         walls = gameState.getWalls()
         legalMoves = ["Stop"]
@@ -272,11 +273,19 @@ class ParticleFilter:
             dist[self.opponentStartingPos] = 1 #TODO: this is placeholder
             return dist
         # actions = gameState.getLegalActions(agentIndex=enemyIndex)
-        actionDist = util.Counter()
+        actionDist = util.Counter() #TODO: particles when we eat them
         for a in legalMoves:
             # if a is "SOUTH":
             #     actionDist[a] +=100
-            actionDist[a] += 1
+            # score = evalOffense(observer, self.myOpponent, self.setEnemyPositions(gameState.deepCopy(), positions[a]))
+            # print a
+            # print(score)
+            # if score < 0:
+            #     actionDist[a] = 0.1
+            # else:
+            #     actionDist[a] = score
+            actionDist[a] = 1
+
         actionDist.normalize()
 
         for action, prob in actionDist.items():
@@ -327,16 +336,17 @@ class ReflexCaptureAgent(CaptureAgent):
     A base class for reflex agents that chooses score-maximizing actions
     """
     def __init__(self, index, particleFilters):
-        CaptureAgent.__init__(self,index)
+        CaptureAgent.__init__(self, index)
         self.particleFilters = particleFilters
 
     def registerInitialState(self, gameState):
+        self.deadEnds = findDeadEnds(gameState)
 
         self.start = gameState.getAgentPosition(self.index)
         CaptureAgent.registerInitialState(self, gameState)
         self.legalPositions = self.getLegalPositions(gameState)
         if len(self.particleFilters) ==0:
-            self.particleFilters[self.getOpponents( gameState)[0]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[0],gameState)
+            self.particleFilters[self.getOpponents(gameState)[0]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[0],gameState)
             self.particleFilters[self.getOpponents(gameState)[1]] = ParticleFilter(self.getTeam(gameState), self.getOpponents(gameState)[1] ,gameState)
 
             # self.jointInference.initialize(gameState, self.legalPositions, self)
@@ -346,11 +356,13 @@ class ReflexCaptureAgent(CaptureAgent):
         enemyThatMoved = self.index - 1 # TODO: if you have the first turn there should be a special case here
         if enemyThatMoved == -1:
             enemyThatMoved = 3
-        self.particleFilters[enemyThatMoved].elapseTime(gameState)
+        self.particleFilters[enemyThatMoved].elapseTime(self, gameState)
 
         otherEnemy = enemyThatMoved + 2
         if otherEnemy > 3:
             otherEnemy = otherEnemy - 4
+
+
         self.particleFilters[enemyThatMoved].observeState(self, gameState, self.index, True)
         self.particleFilters[otherEnemy].observeState(self, gameState, self.index, False)
 
@@ -370,7 +382,7 @@ class ReflexCaptureAgent(CaptureAgent):
         Picks among the actions with the highest Q(s,a).
         """
 
-
+        # self.getMazeDistance((1, 1), (1, 1))
         beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
 
         actions = gameState.getLegalActions(self.index)
@@ -444,3 +456,55 @@ class ReflexCaptureAgent(CaptureAgent):
                 if (i,j) not in walls:
                     legalPosList.append((i,j))
         return legalPosList
+
+def findDeadEnds(gameState):
+    walls = gameState.deepCopy().getWalls()
+    deadEnds = {}  # dict storing cells that are dead ends, and the direction to go to escape them
+    for i in range(walls.width):
+        for j in range(walls.height):
+            if not walls[i][j]:  # check for out of bounds? prob not necessary, walls at border likely
+                # wallcount = 0
+                # path = [(i+1, j),(i,j+1), (i-1, j), (i,j-1)]
+                # pathdirs = ['E','N', 'W', 'S']
+                #
+                # for adj in list(path):
+                #     if walls[adj[0]][adj[1]]:
+                #         index = path.index(adj)
+                #         path.remove(adj)
+                #         del pathdirs[index]
+                # if len(path) is 1: # is a dead end
+                #     deadEnds[(i,j)] = (path[0], pathdirs[0])
+                deadEnds.update(checkIfDeadEnd(i,j,walls,None))
+
+
+
+    for deadEnd in deadEnds:
+        walls[deadEnd[0]][deadEnd[1]] = deadEnds[deadEnd][1]
+
+    for i in range(walls.width):
+        for j in range(walls.height):
+            if walls[i][j] is False:
+                walls[i][j] = ' '
+    print(walls)
+    return deadEnds
+
+def checkIfDeadEnd(i, j, wallgrid, confirmed_dead):
+    wallcount = 0
+    deadEndDict = {}
+    pathdirs = ['E', 'N', 'W', 'S']
+    path = [(i + 1, j), (i, j + 1), (i - 1, j), (i, j - 1)]
+    if confirmed_dead is not None:
+        index = path.index(confirmed_dead)
+        path.remove(confirmed_dead)
+        del pathdirs[index]
+
+    for adj in list(path):
+        if wallgrid[adj[0]][adj[1]]:
+            index = path.index(adj)
+            path.remove(adj)
+            del pathdirs[index]
+    if len(path) is 1:  # is a dead end
+        deadEndDict[(i,j)] = (path[0], pathdirs[0])
+
+        deadEndDict.update(checkIfDeadEnd(path[0][0],path[0][1],wallgrid, (i,j)))
+    return deadEndDict
