@@ -22,8 +22,8 @@ import time
 # on initialization - mark dead end spots, mark the way towards the exit at them
 teamIsRed = None
 TIME_ALLOWANCE = 0.4
-DRAW = True
-PARTICLEFILTER = False
+DRAW = False
+PARTICLEFILTER = True
 #################
 # Team creation #
 #################
@@ -80,21 +80,26 @@ class DefaultAgent(CaptureAgent):
         self.enemySide = getOpposideSidePositions(gameState, self.index)
         self.ourSide = getOurSidePositions(gameState, self.index)
         self.enemySideAsASet = set(self.enemySide)
+        self.ourSideAsASet = set(self.ourSide)
         self.teammate = self.getTeam(gameState)
         self.teammate.remove(self.index)
         self.ourBorder = getOurBorder(gameState, self.index)
+        self.theirBorder = getTheirBorder(gameState, self.index)
         self.borderForPatroling = getBorderForPatroling(self.ourBorder)
         self.borderPatrolCycle = 0
         # getBackHomePolicy maps to the closest home tile and the mazeDistance to that tile
         self.getBackHomePolicy = findBestPathsHome(self.ourBorder, self.enemySide, self)
-
+        self.tilesToPatrol = getTilesForPatroling(self.ourBorder, self.ourSide, self)
         # find optimal defense tile by calculating the maze distances to every single tile on our side
         self.optimalDefenseTile = findOptimalDefenseTile(self.ourSide, self)
         self.optimalBorderTile = findOptimalBorderTile(self.ourSide, self.ourBorder, self)
-        self.debugDraw(self.optimalBorderTile, [1,1,1])
         # print self.optimalDefenseTile
         # print self.optimalBorderTile
         self.lastEatenFood = self.optimalDefenseTile
+
+        self.chokePoints = findChokePoints(self.ourBorder, self, gameState)
+        # self.debugDraw(self.chokePoints, [1,1,1])
+        self.getBackHomePolicyForEnemy = findBestPathsHome(self.theirBorder, self.ourSide, self)
 
         self.mostLeftOrRightFood = self.getMostExtremeFood(gameState)
 
@@ -154,11 +159,12 @@ class DefaultAgent(CaptureAgent):
         Picks among the actions with the highest Q(s,a).
         """
         start = time.time()
-        print(start)
+        # print(start)
         self.movesLeft -= 1
+
         if PARTICLEFILTER:
             beliefs1, beliefs2 = self.getAndUpdateBeliefs(gameState)
-
+        print(time.time() - start)
 
         if self.getScore(gameState) != self.lastScore:
             self.lastScore = self.getScore(gameState)
@@ -170,14 +176,14 @@ class DefaultAgent(CaptureAgent):
             if teamIsRed and self.getScore(gameState) < 0:
                 # we are losing on red
                 actions = gameState.getLegalActions(self.index)
-                print('final time')
-                print(time.time() - start)
+                # print('final time')
+                # print(time.time() - start)
                 return random.choice(actions)
             elif not teamIsRed and self.getScore(gameState) > 0:
                 # we are losing on blue
                 actions = gameState.getLegalActions(self.index)
-                print('final time')
-                print(time.time() - start)
+                # print('final time')
+                # print(time.time() - start)
                 return random.choice(actions)
             self.lastTimeScoreChanged = self.movesLeft
 
@@ -187,31 +193,13 @@ class DefaultAgent(CaptureAgent):
         # find the known positions of all agents
         knownPositions = []
         enemiesSeen = []
+
         for i in range(4):
             position = gameState.getAgentPosition(i)
             knownPositions.append(position)
             if gameState.getAgentPosition(i) is not None and i in self.getOpponents(gameState):
                 enemiesSeen.append(i)
-
-        enemyNoisyDistances = gameState.getAgentDistances()
-        # print gameState
-        # print "agent "+ str(self.index) + str(enemyNoisyDistances)
-
-        # If we can't see any enemies, just return the best action
-
-        # {(1,1): .01}
-
-        # TODO: Modify N Value
-
-        N = 1
-        beliefDist = getBeliefDistributionDummy()
-        distributions = []
-        for position, value in beliefDist.items():
-            distributions.append((value, position))
-        # print distributions
-        distributions.sort(reverse=True)
-
-        top_n = [i[1] for i in distributions[:N]]
+        self.enemiesSeen = enemiesSeen
 
         if len(enemiesSeen) >= 1:
             closest = 10000
@@ -260,11 +248,11 @@ class DefaultAgent(CaptureAgent):
                     if dist < bestDist:
                         bestAction = action
                         bestDist = dist
-                print('final time')
-                print(time.time() - start)
+                # print('final time')
+                # print(time.time() - start)
                 return bestAction
-            print('final time')
-            print(time.time() - start)
+            # print('final time')
+            # print(time.time() - start)
             return random.choice(bestActions)
 
         # if more than one enemy is seen, only run minimax on the one closest to our current agent
@@ -573,19 +561,63 @@ class DefaultAgent(CaptureAgent):
 
         # Patrol border (ONLY THE ORIGINAL DEFENSIVE AGENT WILL PATROL)
         if not self.isOffensiveAgent:
-            borderLen = len(self.borderForPatroling)
-            if self.borderForPatroling[self.borderPatrolCycle] == myPos:
+            newTilesForPatroling = set(self.tilesToPatrol + self.chokePoints)
+            newTilesForPatroling = list(newTilesForPatroling)
+            borderLen = len(newTilesForPatroling)
+            if newTilesForPatroling[self.borderPatrolCycle] == myPos:
                 self.borderPatrolCycle = (self.borderPatrolCycle + 1) % borderLen
-            features['borderPatrol'] = 1/float(self.getMazeDistance(self.borderForPatroling[self.borderPatrolCycle], myPos)+1)
+            features['borderPatrol'] = 1/float(self.getMazeDistance(newTilesForPatroling[self.borderPatrolCycle], myPos)+1)
 
+
+
+        if len(invaders) > 0 and PARTICLEFILTER:
+            beliefDist = self.particleFilters[self.getOpponents(gameState)[0]].getBeliefDistribution()
+            distributions = []
+            for position, value in beliefDist.items():
+                distributions.append((value, position))
+            # print distributions
+            distributions.sort(reverse=True)
+
+            highProbDist1 = []
+            for d in distributions[:1]:
+                if d[0] > 0.25:
+                    highProbDist1.append(d[1])
+
+            beliefDist = self.particleFilters[self.getOpponents(gameState)[1]].getBeliefDistribution()
+            distributions = []
+            for position, value in beliefDist.items():
+                distributions.append((value, position))
+            # print distributions
+            distributions.sort(reverse=True)
+
+            highProbDist2 = []
+            for d in distributions[:1]:
+                if d[0] > 0.10 and d[1] in self.ourSideAsASet:
+                    highProbDist2.append(d[1])
+
+            if len(highProbDist2) > 0 and len(highProbDist1) > 0:
+                ghostGuessPos = [random.choice(highProbDist1), random.choice(highProbDist2)]
+                ghostGuessDistance = min(self.getMazeDistance(ghostGuessPos[0], myPos), self.getMazeDistance(myPos, ghostGuessPos[1]))
+            elif len(highProbDist2) > 0:
+                ghostGuessPos = [random.choice(highProbDist2)]
+                ghostGuessDistance = self.getMazeDistance(ghostGuessPos[0], myPos)
+            elif len(highProbDist1) > 0:
+                ghostGuessPos = [random.choice(highProbDist1)]
+                ghostGuessDistance = self.getMazeDistance(ghostGuessPos[0], myPos)
+            else:
+                ghostGuessDistance = 10000
+
+            print highProbDist1
+
+            features['ghostGuessDistance'] = 1/float(ghostGuessDistance + 1)
 
         return features
 
     def getWeightsDefensive(self, gameState):
         return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2,
-                'numFood': 5, 'capsuleProximity': 0, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
+                'numFood': 5, 'capsuleProximity': 1, 'avoidWhenScared': -10000, 'capsuleInPlay': 10,
                 'noisyClosestEnemy': -1, 'optimalDefenseTile': 2, 'distanceToFood': 1, 'distanceToLastEatenFood': 1000,
-                'closeToTeammate': -1, 'wrongSideOfFood': -3, 'borderPatrol': 3}
+                'closeToTeammate': -1, 'wrongSideOfFood': -3, 'borderPatrol': 3, 'chokePoints': .1, 'ghostGuessDistance':5}
 
 
     # OFFENSE
@@ -639,18 +671,18 @@ class DefaultAgent(CaptureAgent):
                 # print(features['distanceFromEnemy1'])
                 if successorPos in self.deadEnds:
                     features['distanceFromEnemy1'] *= 50
-            if enemyPos2 is not None:
-                if (teamIsRed and enemyPos2[0] > self.ourBorder[0][0]) or (
-                        not teamIsRed and enemyPos2[0] < self.ourBorder[0][0]):
-                    enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
-                    if enemyPos2 is not None and enemydist2 < 3 and scaredTimer < 4:
-                        features['terror'] += 2 - enemydist2
-                    if enemydist2 is 0:
-                        features['distanceFromEnemy2'] = 1000.0
-                    else:
-                        features['distanceFromEnemy2'] = 1.0 / float(enemydist2)
-                    if successorPos in self.deadEnds:
-                        features['distanceFromEnemy2'] *= 50
+        if enemyPos2 is not None:
+            if (teamIsRed and enemyPos2[0] > self.ourBorder[0][0]) or (
+                    not teamIsRed and enemyPos2[0] < self.ourBorder[0][0]):
+                enemydist2 = self.getMazeDistance(successorPos, enemyPos2)
+                if enemyPos2 is not None and enemydist2 < 3 and scaredTimer < 4:
+                    features['terror'] += 2 - enemydist2
+                if enemydist2 is 0:
+                    features['distanceFromEnemy2'] = 1000.0
+                else:
+                    features['distanceFromEnemy2'] = 1.0 / float(enemydist2)
+                if successorPos in self.deadEnds:
+                    features['distanceFromEnemy2'] *= 50
 
         if len(foodList) > 0:  # This should always be True,  but better safe than sorry
             minDistance = min([self.getMazeDistance(successorPos, food) for food in foodList])
@@ -798,7 +830,7 @@ class ParticleFilter:
 
 
 
-    def __init__(self, myteam, myOpponent, gameState, numParticles=1):
+    def __init__(self, myteam, myOpponent, gameState, numParticles=50):
         self.setNumParticles(numParticles)
         self.particles = []
         self.agent1index = myteam[0]
@@ -829,7 +861,7 @@ class ParticleFilter:
         self.particles = []
         legalPositionsLen = len(self.legalPositions)
         for i in range(self.numParticles): # check this is right
-            self.particles.append(self.legalPositions[random.randint(0,legalPositionsLen-1)])
+            self.particles.append(self.legalPositions[random.randint(0, legalPositionsLen-1)])
 
 
 
@@ -1098,11 +1130,40 @@ def getOurBorder(gameState, playerIndex):
     else:
         return getLegalPositionsOneSide(gameState, halfwayWidth - 1, halfwayWidth)
 
+def getTheirBorder(gameState, playerIndex):
+    halfwayWidth = gameState.getWalls().width // 2
+
+    if gameState.getInitialAgentPosition(playerIndex)[0] < halfwayWidth:
+        return getLegalPositionsOneSide(gameState, halfwayWidth, halfwayWidth + 1)
+
+    else:
+        return getLegalPositionsOneSide(gameState, halfwayWidth - 1, halfwayWidth)
+
+
 def getBorderForPatroling(border):
     newBorder = border[:]
     newBorder.sort()
 
-    return newBorder[::3]
+    return newBorder[::4]
+
+def getTilesForPatroling(ourSideGrid, border, agent):
+    newBorder = border[:]
+    optimal = []
+    newBorder.sort()
+    borderLen = len(border)
+    borderLenThird = borderLen//3
+    tempBorder = newBorder[:borderLenThird]
+    optimal.append(findOptimalBorderTile(ourSideGrid, tempBorder, agent))
+    tempBorder = newBorder[borderLenThird:borderLenThird*2]
+    optimal.append(findOptimalBorderTile(ourSideGrid, tempBorder, agent))
+    tempBorder = newBorder[borderLenThird*2:borderLenThird*3]
+    optimal.append(findOptimalBorderTile(ourSideGrid, tempBorder, agent))
+    tempBorder = newBorder[borderLenThird*3:]
+    optimal.append(findOptimalBorderTile(ourSideGrid, tempBorder, agent))
+
+    return optimal
+
+
 
 def findBestPathsHome(border, oppositeGrid, agent):
     closestBorderTiles = util.Counter()
@@ -1137,6 +1198,20 @@ def findOptimalDefenseTile(ourSideGrid, agent):
     # print bestDefenseTile
 
     return bestDefenseTile
+
+def findChokePoints(border, agent, gameState):
+    foodList = agent.getFoodYouAreDefending(gameState).asList()
+    newBorder = []
+    foodLen = len(foodList)
+    for borderTile in border:
+        sumOfFoodDistance = 0
+        for food in foodList:
+            sumOfFoodDistance += agent.getMazeDistance(borderTile, food)
+        foodAvg = sumOfFoodDistance/float(foodLen+1)
+        newBorder.append((foodAvg, borderTile))
+    newBorder.sort()
+    chokePoints = [i[1] for i in newBorder[:3]]
+    return chokePoints
 
 def findOptimalBorderTile(ourSideGrid, border, agent):
     lowestSoFar = 100000
